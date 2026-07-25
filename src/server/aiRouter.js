@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import FormData from 'form-data';
 import fetch from 'node-fetch';
-import { createClient } from '@supabase/supabase-client';
+import { createClient } from '@supabase/supabase-js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
