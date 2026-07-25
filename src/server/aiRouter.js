@@ -1,3 +1,21 @@
+import express from 'express';
+import { createClient } from '@supabase/supabase-js';
+import fetch from 'node-fetch';
+import { createRequire } from 'module';
+
+// Безопасно подключаем CommonJS библиотеки в ESM окружение
+const require = createRequire(import.meta.url);
+const multer = require('multer');
+const FormData = require('form-data');
+
+const router = express.Router();
+
+// Настройка Supabase и хранилища аудио
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+const upload = multer({ storage: multer.memoryStorage() });
+
 /* ================================================================
  1. ЭНДПОИНТ РЕГИСТРАЦИИ С СОЗДАНИЕМ ПРОФИЛЯ (/api/signup)
  ================================================================ */
@@ -6,30 +24,21 @@ router.post('/signup', async (req, res) => {
   if (!email || !password) {
     return res.status(400).json({ error: 'Заполните все поля' });
   }
-
   try {
-    // 1. Создаем пользователя в системе аутентификации Supabase
     const { data, error: authError } = await supabase.auth.signUp({ email, password });
     if (authError) throw authError;
 
-    // 2. Если пользователь создался, привязываем к нему пустой профиль в нашей таблице thoughts
     if (data?.user) {
       const { error: dbError } = await supabase
         .from('thoughts')
-        .insert([
-          { 
-            user_id: data.user.id, 
-            text: 'Журнал успешно создан и готов к работе.', 
-            mode: 'system' 
-          }
-        ]);
-      if (dbError) console.error('Ошибка создания стартовой записи в БД:', dbError.message);
+        .insert([{ user_id: data.user.id, text: 'Журнал создан.', mode: 'system' }]);
+      if (dbError) console.error('Ошибка записи в БД:', dbError.message);
     }
-
     res.json({ success: true, session: data.session });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
+});
 
 /* ================================================================
  2. ЭНДПОИНТ ВХОДА (/api/login)
@@ -49,7 +58,7 @@ router.post('/login', async (req, res) => {
 });
 
 /* ================================================================
- 2.5. ЭНДПОИНТ РАСПОЗНАВАНИЯ REЧИ (/api/stt)
+ 2.5. ЭНДПОИНТ РАСПОЗНАВАНИЯ РЕЧИ (/api/stt)
  ================================================================ */
 router.post('/stt', upload.single('audio'), async (req, res) => {
   if (!req.file) {
@@ -105,7 +114,7 @@ router.post('/chat', async (req, res) => {
 
     const data = await response.json();
     if (data.error) throw new Error(data.error.message || 'Ошибка OpenRouter');
-    res.json({ reply: data.choices[0].message.content });
+    res.json({ reply: data.choices.message.content });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -114,7 +123,9 @@ router.post('/chat', async (req, res) => {
 /* ================================================================
  ЗАПУСК СЕРВЕРА EXPRESS И CORS
  ================================================================ */
+const app = express();
 app.use(express.json());
+
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
@@ -124,7 +135,10 @@ app.use((req, res, next) => {
 });
 
 app.use('/api', router);
-app.listen(process.env.PORT || 3000, () => console.log('Server is running'));
 
-export { router as default };
+// Render автоматически передает нужный порт через переменную окружения PORT
+app.listen(process.env.PORT || 3000, () => {
+  console.log('Сервер [+vision] успешно запущен и слушает запросы');
+});
 
+export default router;
