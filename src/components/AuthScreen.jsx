@@ -9,14 +9,16 @@ export default function AuthScreen({ onSuccess }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const translations = {
+    const translations = {
     ru: {
       title: '[+vision]',
+      nameLabel: 'Имя',
+      namePlaceholder: 'Как к вам обращаться?',
       emailLabel: 'Электронная почта',
       emailPlaceholder: 'имя@example.com',
-      passwordLabel: 'Пароль (минимум 6 символов)',
-      passwordPlaceholder: '••••••••',
-      buttonSignIn: 'Войти в журнал',
+      passwordLabel: 'Пароль',
+      passwordPlaceholder: 'Не менее 6 символов',
+      buttonSignIn: 'Войти',
       buttonSignUp: 'Создать аккаунт',
       or: 'или',
       googleIn: 'Войти через Google',
@@ -34,11 +36,13 @@ export default function AuthScreen({ onSuccess }) {
     },
     en: {
       title: '[+vision]',
+      nameLabel: 'Name',
+      namePlaceholder: 'What is your name?',
       emailLabel: 'Email Address',
       emailPlaceholder: 'name@example.com',
-      passwordLabel: 'Password (min 6 characters)',
-      passwordPlaceholder: '••••••••',
-      buttonSignIn: 'Sign In to Journal',
+      passwordLabel: 'Password',
+      passwordPlaceholder: 'At least 6 characters',
+      buttonSignIn: 'Sign In',
       buttonSignUp: 'Sign Up',
       or: 'or',
       googleIn: 'Sign In with Google',
@@ -55,6 +59,7 @@ export default function AuthScreen({ onSuccess }) {
       errInvalidEmail: 'Please enter a valid email address'
     }
   };
+
 
   const t = translations[lang];
 
@@ -135,10 +140,13 @@ export default function AuthScreen({ onSuccess }) {
         </button>
       </div>
 
-      <div className="glass p-8 sm:p-10">
+            <div className="glass p-8 sm:p-10">
         <div className="flex flex-col items-center mb-8">
-          <div className="logo-placeholder mb-4">✦</div>
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">{t.title}</h1>
+          {/* Минималистичный премиальный логотип в стиле Apple */}
+          <div className="w-12 h-12 rounded-full border-2 border-[var(--accent)] flex items-center justify-center mb-3 shadow-sm">
+            <div className="w-4 h-4 rounded-full bg-[var(--accent)] animate-pulse" />
+          </div>
+          <h1 className="text-2xl font-light tracking-tight text-[var(--text-primary)]">{t.title}</h1>
         </div>
 
         {errorMsg && (
@@ -148,9 +156,21 @@ export default function AuthScreen({ onSuccess }) {
         )}
 
         <form onSubmit={handleSubmit} noValidate>
+          {/* Поле ИМЯ: Показывается строго при создании аккаунта по HIG */}
+          {isSignUp && (
+            <div className="mb-5">
+              <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.nameLabel}</label>
+              <input 
+                type="text" 
+                className="glass-input" 
+                placeholder={t.namePlaceholder} 
+                disabled={isLoading} 
+              />
+            </div>
+          )}
+
           <div className="mb-5">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.emailLabel}</label>
-            {/* type="text" убирает ошибку Хрома, а сочетание с inputMode и autoComplete возвращает клавиатуру со значком @ и автозаполнение iOS */}
             <input 
               type="text" 
               inputMode="email"
@@ -164,7 +184,6 @@ export default function AuthScreen({ onSuccess }) {
           </div>
           <div className="mb-5">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.passwordLabel}</label>
-            {/* Включаем автозаполнение пароля */}
             <input 
               type="password" 
               autoComplete="current-password"
@@ -179,7 +198,6 @@ export default function AuthScreen({ onSuccess }) {
             {isLoading ? t.loading : (isSignUp ? t.buttonSignUp : t.buttonSignIn)}
           </button>
         </form>
-
         <div className="flex items-center gap-3 my-6">
           <div className="h-px flex-1 bg-[var(--glass-border)]" />
           <span className="text-sm text-[var(--text-secondary)]">{t.or}</span>
