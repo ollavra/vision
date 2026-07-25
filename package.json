@@ -2,9 +2,9 @@
   "name": "vision-backend",
   "version": "1.0.0",
   "type": "module",
-  "main": "src/server/aiRouter.js",
+  "main": "src/server/aiRouter.mjs",
   "scripts": {
-    "start": "node src/server/aiRouter.js",
+    "start": "node src/server/aiRouter.mjs",
     "build": "vite build"
   },
   "dependencies": {
