@@ -13,7 +13,7 @@ export default function AuthScreen({ onSuccess }) {
     ru: {
       title: '[+vision]',
       emailLabel: 'Электронная почта',
-      emailPlaceholder: 'имя@example.com',
+      emailPlaceholder: 'user@example.com',
       passwordLabel: 'Пароль',
       passwordPlaceholder: 'Не менее 6 символов',
       buttonSignIn: 'Войти',
@@ -122,7 +122,7 @@ export default function AuthScreen({ onSuccess }) {
 
   return (
     <motion.div className="w-full max-w-md" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: 'easeOut' }}>
-      <div className="glass p-8 sm:p-10 relative">
+      <div className="glass p-8 sm:p-10 pt-16 relative">
         {/* Кнопка смены языка в верхнем правом углу белой карточки */}
         <div className="absolute top-4 right-4">
           <button 
@@ -137,15 +137,20 @@ export default function AuthScreen({ onSuccess }) {
           </button>
         </div>
 
-        {/* Геометрически отцентрированный векторный логотип */}
-        <div className="mb-8 flex justify-center w-full pt-2">
-          <svg width="140" height="40" viewBox="0 0 140 40" fill="none" xmlns="http://w3.org" className="select-none mx-auto">
-            <path d="M 12 8 L 5 8 L 5 32 L 12 32" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M 20 20 L 28 20 M 24 16 L 24 24" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round"/>
-            <text x="36" y="27" fill="var(--text-primary)" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="22" fontWeight="400" letterSpacing="0.2">vision</text>
-            <path d="M 102 8 L 109 8 L 109 32 L 102 32" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </div>
+              {/* Геометрически отцентрированный векторный логотип */}
+      <div className="mb-8 flex justify-center w-full pt-2">
+        <svg width="150" height="40" viewBox="0 0 150 40" fill="none" xmlns="http://w3.org" className="select-none mx-auto">
+          {/* Левая скобка */}
+          <path d="M 14 8 L 7 8 L 7 32 L 14 32" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+          {/* Плюс строго по центру свободного места */}
+          <path d="M 24 20 L 32 20 M 28 16 L 28 24" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round"/>
+          {/* Текст vision */}
+          <text x="44" y="27" fill="var(--text-primary)" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="22" fontWeight="400" letterSpacing="0.2">vision</text>
+          {/* Правая скобка сбалансирована на правом краю */}
+          <path d="M 112 8 L 119 8 L 119 32 L 112 32" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+
 
         {errorMsg && (
           <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-500 text-center">
