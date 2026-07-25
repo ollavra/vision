@@ -126,4 +126,5 @@ app.use((req, res, next) => {
 app.use('/api', router);
 app.listen(process.env.PORT || 3000, () => console.log('Server is running'));
 
-export default router;
+export { router as default };
+
