@@ -85,7 +85,7 @@ export default function AuthScreen({ onSuccess }) {
     setErrorMsg('');
 
     try {
-      const apiUrl = 'https://onrender.com';
+      const apiUrl = 'https://vision-backend-olsz.onrender.com';
       const endpoint = isSignUp ? '/api/signup' : '/api/login';
       
       const response = await fetch(`${apiUrl}${endpoint}`, {
