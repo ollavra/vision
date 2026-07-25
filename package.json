@@ -1,0 +1,16 @@
+{
+  "name": "vision-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/server/aiRouter.js",
+  "scripts": {
+    "start": "node src/server/aiRouter.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-client": "^2.43.4",
+    "express": "^4.19.2",
+    "form-data": "^4.0.0",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.2"
+  }
+}
