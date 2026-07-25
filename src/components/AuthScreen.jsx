@@ -56,11 +56,21 @@ export default function AuthScreen({ onSuccess }) {
 
   const t = translations[lang];
 
+  // Простая и безопасная проверка email без тяжелых регулярок, ломающих Safari
+  const validateEmail = (input) => {
+    return input.includes('@') && input.includes('.');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email || !password || isLoading) return;
 
-    // Внутренняя проверка пароля перед отправкой
+    // Мягкая ручная валидация на JS вместо встроенной в HTML
+    if (!validateEmail(email)) {
+      setErrorMsg(t.errInvalidEmail);
+      return;
+    }
+
     if (password.length < 6) {
       setErrorMsg(t.errShortPassword);
       return;
@@ -82,7 +92,6 @@ export default function AuthScreen({ onSuccess }) {
       const data = await response.json();
       
       if (!response.ok || data.error) {
-        // Переводим самые частые ошибки сервера на лету
         let serverErr = data.error || 'Auth error';
         if (serverErr.includes('at least 6 characters')) serverErr = t.errShortPassword;
         if (serverErr.includes('Invalid login credentials')) {
@@ -110,9 +119,10 @@ export default function AuthScreen({ onSuccess }) {
     <motion.div className="w-full max-w-md" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: 'easeOut' }}>
       <div className="flex justify-end mb-2">
         <button 
+          type="button"
           onClick={() => {
             setLang(lang === 'ru' ? 'en' : 'ru');
-            setErrorMsg(''); // сбрасываем ошибку при смене языка
+            setErrorMsg('');
           }} 
           className="text-sm font-medium px-3 py-1 glass rounded-full text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors"
         >
@@ -132,14 +142,32 @@ export default function AuthScreen({ onSuccess }) {
           </motion.div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+          {/* noValidate запрещает Safari применять встроенные кривые шаблоны проверки */}
           <div>
-            <label htmlFor="auth-email" className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.emailLabel}</label>
-            <input id="auth-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className="glass-input" placeholder={t.emailPlaceholder} required disabled={isLoading} />
+            <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.emailLabel}</label>
+            <input 
+              type="text" 
+              inputMode="email"
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              className="glass-input" 
+              placeholder={t.emailPlaceholder} 
+              required 
+              disabled={isLoading} 
+            />
           </div>
           <div>
-            <label htmlFor="auth-password" className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.passwordLabel}</label>
-            <input id="auth-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="glass-input" placeholder={t.passwordPlaceholder} required disabled={isLoading} />
+            <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.passwordLabel}</label>
+            <input 
+              type="password" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              className="glass-input" 
+              placeholder={t.passwordPlaceholder} 
+              required 
+              disabled={isLoading} 
+            />
           </div>
           <button type="submit" className="btn-accent" disabled={isLoading}>
             {isLoading ? t.loading : (isSignUp ? t.buttonSignUp : t.buttonSignIn)}
