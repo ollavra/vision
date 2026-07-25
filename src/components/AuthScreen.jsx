@@ -154,6 +154,19 @@ export default function AuthScreen({ onSuccess }) {
         )}
 
         <form onSubmit={handleSubmit} noValidate>
+          {/* Поле ИМЯ: Показывается строго при создании аккаунта по HIG */}
+          {isSignUp && (
+            <div className="mb-5">
+              <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.nameLabel}</label>
+              <input 
+                type="text" 
+                className="glass-input" 
+                placeholder={t.namePlaceholder} 
+                disabled={isLoading} 
+              />
+            </div>
+          )}
+
           <div className="mb-5">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.emailLabel}</label>
             <input 
