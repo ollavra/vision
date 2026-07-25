@@ -4,7 +4,8 @@
   "type": "module",
   "main": "src/server/aiRouter.js",
   "scripts": {
-    "start": "node src/server/aiRouter.js"
+    "start": "node src/server/aiRouter.js",
+  "build": "vite build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",
