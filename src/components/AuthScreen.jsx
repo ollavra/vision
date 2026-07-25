@@ -10,10 +10,12 @@ export default function AuthScreen({ onSuccess }) {
   const [isLoading, setIsLoading] = useState(false);
 
   const translations = {
-    ru: {
-      title: '[+vision]',
-      emailLabel: 'Электронная почта',
-      emailPlaceholder: 'user@example.com',
+      ru: {
+    title: '[+vision]',
+    nameLabel: 'Имя',
+    namePlaceholder: 'Как к вам обращаться?',
+    emailLabel: 'Электронная почта',
+    emailPlaceholder: 'user@example.com',
       passwordLabel: 'Пароль',
       passwordPlaceholder: 'Не менее 6 символов',
       buttonSignIn: 'Войти',
@@ -32,10 +34,12 @@ export default function AuthScreen({ onSuccess }) {
       errShortPassword: 'Пароль должен быть не менее 6 символов',
       errInvalidEmail: 'Пожалуйста, введите корректный email'
     },
-    en: {
-      title: '[+vision]',
-      emailLabel: 'Email Address',
-      emailPlaceholder: 'name@example.com',
+      en: {
+    title: '[+vision]',
+    nameLabel: 'Name',
+    namePlaceholder: 'What is your name?',
+    emailLabel: 'Email Address',
+    emailPlaceholder: 'name@example.com',
       passwordLabel: 'Password',
       passwordPlaceholder: 'At least 6 characters',
       buttonSignIn: 'Sign In',
@@ -170,7 +174,7 @@ export default function AuthScreen({ onSuccess }) {
                 disabled={isLoading} 
               />
             </div>
-          )}
+          }
 
           {/* 2. Поле ПОЧТА */}
           <div className="mb-5 flex flex-col items-start w-full">
