@@ -28,6 +28,7 @@ export default function AuthScreen({ onSuccess }) {
       linkSignUp: 'Создать аккаунт',
       linkSignIn: 'Войти',
       loading: 'Подождите...',
+      errEmptyFields: 'Пожалуйста, заполните все поля',
       errShortPassword: 'Пароль должен быть не менее 6 символов',
       errInvalidEmail: 'Пожалуйста, введите корректный email'
     },
@@ -49,6 +50,7 @@ export default function AuthScreen({ onSuccess }) {
       linkSignUp: 'Sign Up',
       linkSignIn: 'Sign In',
       loading: 'Loading...',
+      errEmptyFields: 'Please fill in all fields',
       errShortPassword: 'Password must be at least 6 characters long',
       errInvalidEmail: 'Please enter a valid email address'
     }
@@ -56,16 +58,19 @@ export default function AuthScreen({ onSuccess }) {
 
   const t = translations[lang];
 
-  // Простая и безопасная проверка email без тяжелых регулярок, ломающих Safari
   const validateEmail = (input) => {
     return input.includes('@') && input.includes('.');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email || !password || isLoading) return;
+    if (isLoading) return;
 
-    // Мягкая ручная валидация на JS вместо встроенной в HTML
+    if (!email.trim() || !password.trim()) {
+      setErrorMsg(t.errEmptyFields);
+      return;
+    }
+
     if (!validateEmail(email)) {
       setErrorMsg(t.errInvalidEmail);
       return;
@@ -80,7 +85,7 @@ export default function AuthScreen({ onSuccess }) {
     setErrorMsg('');
 
     try {
-      const apiUrl = import.meta.env.NEXT_PUBLIC_API_URL || '';
+      const apiUrl = 'https://onrender.com';
       const endpoint = isSignUp ? '/api/signup' : '/api/login';
       
       const response = await fetch(`${apiUrl}${endpoint}`, {
@@ -142,30 +147,31 @@ export default function AuthScreen({ onSuccess }) {
           </motion.div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-          {/* noValidate запрещает Safari применять встроенные кривые шаблоны проверки */}
-          <div>
+        <form onSubmit={handleSubmit} noValidate>
+          <div className="mb-5">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.emailLabel}</label>
+            {/* type="text" убирает ошибку Хрома, а сочетание с inputMode и autoComplete возвращает клавиатуру со значком @ и автозаполнение iOS */}
             <input 
               type="text" 
               inputMode="email"
+              autoComplete="username"
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 
               className="glass-input" 
               placeholder={t.emailPlaceholder} 
-              required 
               disabled={isLoading} 
             />
           </div>
-          <div>
+          <div className="mb-5">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.passwordLabel}</label>
+            {/* Включаем автозаполнение пароля */}
             <input 
               type="password" 
+              autoComplete="current-password"
               value={password} 
               onChange={(e) => setPassword(e.target.value)} 
               className="glass-input" 
               placeholder={t.passwordPlaceholder} 
-              required 
               disabled={isLoading} 
             />
           </div>
