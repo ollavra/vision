@@ -9,12 +9,12 @@ export default function AuthScreen({ onSuccess }) {
   // Словарик для перевода, чтобы ничего не смешивалось
   const translations = {
     ru: {
-      title: 'Личный ИИ-Дневник',
+      title: '[+vision]',
       emailLabel: 'Электронная почта',
       emailPlaceholder: 'имя@example.com',
       passwordLabel: 'Пароль',
       passwordPlaceholder: '••••••••',
-      button: 'Войти в журнал',
+      button: 'Войти',
       or: 'или',
       google: 'Продолжить через Google'
     },
@@ -24,7 +24,7 @@ export default function AuthScreen({ onSuccess }) {
       emailPlaceholder: 'name@example.com',
       passwordLabel: 'Password',
       passwordPlaceholder: '••••••••',
-      button: 'Sign In to Journal',
+      button: 'Sign In',
       or: 'or',
       google: 'Continue with Google'
     }
