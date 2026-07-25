@@ -158,21 +158,22 @@ export default function AuthScreen({ onSuccess }) {
           </motion.div>
         )}
 
-        <form onSubmit={handleSubmit} noValidate>
-          {/* Поле ИМЯ: Показывается строго при создании аккаунта по HIG */}
+          <form onSubmit={handleSubmit} noValidate>
+          {/* 1. Поле ИМЯ: Показывается строго при создании аккаунта */}
           {isSignUp && (
-            <div className="mb-5">
+            <div className="mb-5 flex flex-col items-start w-full">
               <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.nameLabel}</label>
               <input 
                 type="text" 
-                className="glass-input" 
+                className="glass-input w-full" 
                 placeholder={t.namePlaceholder} 
                 disabled={isLoading} 
               />
             </div>
-          }
+          )}
 
-          <div className="mb-5">
+          {/* 2. Поле ПОЧТА */}
+          <div className="mb-5 flex flex-col items-start w-full">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.emailLabel}</label>
             <input 
               type="text" 
@@ -180,28 +181,30 @@ export default function AuthScreen({ onSuccess }) {
               autoComplete="username"
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 
-              className="glass-input" 
+              className="glass-input w-full" 
               placeholder={t.emailPlaceholder} 
               disabled={isLoading} 
             />
           </div>
-          <div className="mb-5">
+
+          {/* 3. Поле ПАРОЛЬ */}
+          <div className="mb-6 flex flex-col items-start w-full">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.passwordLabel}</label>
             <input 
               type="password" 
               autoComplete="current-password"
               value={password} 
               onChange={(e) => setPassword(e.target.value)} 
-              className="glass-input" 
+              className="glass-input w-full" 
               placeholder={t.passwordPlaceholder} 
               disabled={isLoading} 
             />
           </div>
-          <button type="submit" className="btn-accent" disabled={isLoading}>
+
+          <button type="submit" className="btn-accent w-full" disabled={isLoading}>
             {isLoading ? t.loading : (isSignUp ? t.buttonSignUp : t.buttonSignIn)}
           </button>
         </form>
-
         <div className="flex items-center gap-3 my-6">
           <div className="h-px flex-1 bg-[var(--glass-border)]" />
           <span className="text-sm text-[var(--text-secondary)]">{t.or}</span>
