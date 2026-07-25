@@ -15,7 +15,7 @@ export default function AuthScreen({ onSuccess }) {
       nameLabel: 'Имя',
       namePlaceholder: 'Как к вам обращаться?',
       emailLabel: 'Электронная почта',
-      emailPlaceholder: 'имя@example.com',
+      emailPlaceholder: 'user@example.com',
       passwordLabel: 'Пароль',
       passwordPlaceholder: 'Не менее 6 символов',
       buttonSignIn: 'Войти',
@@ -142,10 +142,19 @@ export default function AuthScreen({ onSuccess }) {
 
             <div className="glass p-8 sm:p-10">
         <div className="flex flex-col items-center mb-8">
-          {/* Минималистичный премиальный логотип в стиле Apple */}
-          <div className="w-12 h-12 rounded-full border-2 border-[var(--accent)] flex items-center justify-center mb-3 shadow-sm">
-            <div className="w-4 h-4 rounded-full bg-[var(--accent)] animate-pulse" />
-          </div>
+         {/* Оригинальный адаптивный логотип [+vision] */}
+<div className="mb-4 flex justify-center">
+  <svg width="180" height="50" viewBox="0 0 180 50" fill="none" xmlns="http://w3.org" className="select-none">
+    {/* Левая скобка */}
+    <path d="M 18 10 L 10 10 L 10 40 L 18 40" stroke="var(--accent)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+    {/* Плюс */}
+    <path d="M 28 25 L 38 25 M 33 20 L 33 30" stroke="var(--accent)" strokeWidth="3.5" strokeLinecap="round"/>
+    {/* Текст vision */}
+    <text x="48" y="32" fill="var(--text-primary)" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="24" fontWeight="400" letterSpacing="0.5">vision</text>
+    {/* Правая скобка */}
+    <path d="M 118 10 L 126 10 L 126 40 L 118 40" stroke="var(--accent)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+</div>
           <h1 className="text-2xl font-light tracking-tight text-[var(--text-primary)]">{t.title}</h1>
         </div>
 
