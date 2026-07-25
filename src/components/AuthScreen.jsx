@@ -170,7 +170,7 @@ export default function AuthScreen({ onSuccess }) {
                 disabled={isLoading} 
               />
             </div>
-          )}
+          }
 
           <div className="mb-5">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.emailLabel}</label>
