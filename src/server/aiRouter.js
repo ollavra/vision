@@ -171,7 +171,7 @@ router.post('/api/chat', async (req, res) => {
       finalSystemPrompt += ' Твоя цель — аккуратно отредактировать текст, структурировать хаотичный поток мыслей, выделить тезисы, не меняя ключевой смысл.';
     }
 
-    const openRouterResponse = await fetch('https://openrouter.ai', {
+    const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -221,7 +221,7 @@ router.post('/api/stt', upload.single('audio'), async (req, res) => {
     formData.append('language', whisperLang);
     formData.append('response_format', 'json');
 
-    const openRouterResponse = await fetch('https://openrouter.ai', {
+    const openRouterResponse = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
