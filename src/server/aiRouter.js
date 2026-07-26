@@ -224,7 +224,7 @@ router.post('/api/stt', upload.single('audio'), async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'openai/whisper-large-v3',
+        model: 'meta-llama/llama-3.1-8b-instruct:free',
         language: whisperLang,
         response_format: 'json',
         input_audio: {
