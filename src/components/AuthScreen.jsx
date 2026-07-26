@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 
 export default function AuthScreen({ onSuccess }) {
   const [email, setEmail] = useState('');
+const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [lang, setLang] = useState('ru');
   const [isSignUp, setIsSignUp] = useState(false);
@@ -70,7 +71,11 @@ export default function AuthScreen({ onSuccess }) {
     e.preventDefault();
     if (isLoading) return;
 
-    if (!email.trim() || !password.trim()) {
+   if (
+    (isSignUp && !name.trim()) ||
+    !email.trim() ||
+    !password.trim()
+) {
       setErrorMsg(t.errEmptyFields);
       return;
     }
@@ -95,7 +100,7 @@ export default function AuthScreen({ onSuccess }) {
       const response = await fetch(`${apiUrl}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ name, email, password })
       });
 
       const data = await response.json();
@@ -163,27 +168,41 @@ export default function AuthScreen({ onSuccess }) {
           <form onSubmit={handleSubmit} noValidate>
           {/* 1. Поле ИМЯ: Показывается строго при создании аккаунта */}
           {isSignUp && (
-  <div className="mb-5 flex flex-col items-start w-full">
-    <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">
-      {t.nameLabel}
-    </label>
+    <div className="mb-5 flex flex-col items-start w-full">
+        <label
+            htmlFor="name"
+            className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]"
+        >
+            {t.nameLabel}
+        </label>
 
-    <input
-      type="text"
-      className="glass-input w-full"
-      placeholder={t.namePlaceholder}
-      disabled={isLoading}
-    />
-  </div>
+        <input
+            id="name"
+            name="name"
+            type="text"
+            inputMode="text"
+            autoComplete="name"
+            autoCapitalize="words"
+            autoCorrect="off"
+            spellCheck={false}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t.namePlaceholder}
+            className="glass-input w-full"
+            disabled={isLoading}
+        />
+    </div>
 )}
 
           {/* 2. Поле ПОЧТА */}
           <div className="mb-5 flex flex-col items-start w-full">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.emailLabel}</label>
             <input 
-              type="text" 
-              inputMode="email"
-              autoComplete="username"
+              id="email"
+    name="email"
+    type="email"
+    inputMode="email"
+    autoComplete="username"
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 
               className="glass-input w-full" 
@@ -195,9 +214,15 @@ export default function AuthScreen({ onSuccess }) {
           {/* 3. Поле ПАРОЛЬ */}
           <div className="mb-6 flex flex-col items-start w-full">
             <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.passwordLabel}</label>
-            <input 
+            <input
+id="password"
+name="password" 
               type="password" 
-              autoComplete="current-password"
+              autoComplete={
+    isSignUp
+        ? "new-password"
+        : "current-password"
+}
               value={password} 
               onChange={(e) => setPassword(e.target.value)} 
               className="glass-input w-full" 
@@ -233,7 +258,9 @@ export default function AuthScreen({ onSuccess }) {
             type="button" 
             onClick={() => {
               setIsSignUp(!isSignUp);
-              setErrorMsg('');
+setName('');
+setPassword('');
+setErrorMsg('');
             }} 
             className="text-[var(--accent)] font-semibold hover:underline"
             disabled={isLoading}
