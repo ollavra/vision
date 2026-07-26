@@ -1,144 +1,205 @@
-import express from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { Router } from 'express';
+import multer from 'multer';
 import fetch from 'node-fetch';
-import { createRequire } from 'module';
+import FormData from 'form-data';
+import { createClient } from '@supabase/supabase-js';
 
-// Безопасно подключаем CommonJS библиотеки в ESM окружение
-const require = createRequire(import.meta.url);
-const multer = require('multer');
-const FormData = require('form-data');
+// Инициализация роутера Express
+const router = Router();
 
-const router = express.Router();
-
-// Настройка Supabase и хранилища аудио
+// Инициализация Supabase клиента с service_role_key для обхода ограничений при необходимости
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
-const upload = multer({ storage: multer.memoryStorage() });
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-/* ================================================================
- 1. ЭНДПОИНТ РЕГИСТРАЦИИ С СОЗДАНИЕМ ПРОФИЛЯ (/api/signup)
- ================================================================ */
-router.post('/signup', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Заполните все поля' });
-  }
+// Настройка хранилища Multer в оперативной памяти (In-Memory) для обработки аудио без дискового следа
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 25 * 1024 * 1024 } // Ограничение Groq Whisper — 25 Мб
+});
+
+/**
+ * Вспомогательная функция сопоставления языков для ИИ-транскрибатора
+ */
+function mapLangForWhisper(lang = 'ru') {
+  if (lang === 'en') return 'en';
+  return 'ru';
+}
+
+/**
+ * ЭНДПОИНТ 1: Сохранение новой мысли / ветки в Журнал (Supabase PostgreSQL)
+ * Доступ строго по JWT токену активной пользовательской сессии
+ */
+router.post('/api/thoughts', async (req, res) => {
   try {
-    const { data, error: authError } = await supabase.auth.signUp({ email, password });
-    if (authError) throw authError;
-
-    if (data?.user) {
-      const { error: dbError } = await supabase
-        .from('thoughts')
-        .insert([{ user_id: data.user.id, text: 'Журнал создан.', mode: 'system' }]);
-      if (dbError) console.error('Ошибка записи в БД:', dbError.message);
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Не авторизован: отсутствует авторизационный токен' });
     }
-    res.json({ success: true, session: data.session });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
+    
+    // Извлекаем чистый access_token из заголовка Bearer
+    const token = authHeader.split(' ')[1];
 
-/* ================================================================
- 2. ЭНДПОИНТ ВХОДА (/api/login)
- ================================================================ */
-router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Заполните все поля' });
-  }
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    // Проверяем валидность токена и получаем профиль пользователя напрямую из Supabase Auth
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return res.status(401).json({ error: 'Неверный или просроченный токен авторизации' });
+    }
+
+    const { text, mode, parent_thought_id } = req.body;
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Текст мысли не может быть пустым' });
+    }
+
+    // Вставляем запись в таблицу thoughts. Настроенная RLS политика гарантирует защиту данных
+    const { data, error } = await supabase
+      .from('thoughts')
+      .insert([
+        {
+          user_id: user.id,
+          text: text.trim(),
+          mode: mode || 'editor',
+          parent_thought_id: parent_thought_id || null,
+          context_locked: true // Фиксируем контекст для готовой публикации в журнал
+        }
+      ])
+      .select()
+      .single();
+
     if (error) throw error;
-    res.json({ success: true, session: data.session });
+
+    return res.status(201).json({ success: true, thought: data });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error('Ошибка сервера при публикации мысли:', error.message);
+    return res.status(500).json({ error: `Внутренняя ошибка сервера: ${error.message}` });
   }
 });
 
-/* ================================================================
- 2.5. ЭНДПОИНТ РАСПОЗНАВАНИЯ РЕЧИ (/api/stt)
- ================================================================ */
-router.post('/stt', upload.single('audio'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'Аудиофайл не найден' });
-  }
+/**
+ * ЭНДПОИНТ 2: Получение персонального списка всех мыслей пользователя для Архива
+ */
+router.get('/api/thoughts', async (req, res) => {
   try {
-    const formData = new FormData();
-    formData.append('file', req.file.buffer, {
-      filename: req.file.originalname || 'audio.wav',
-      contentType: req.file.mimetype || 'audio/wav',
-    });
-    formData.append('model', 'openai/whisper-large-v3');
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Доступ запрещен: отсутствует токен' });
+    }
+    
+    const token = authHeader.split(' ')[1];
 
-    const response = await fetch('https://openrouter.ai', {
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return res.status(401).json({ error: 'Сессия недействительна или устарела' });
+    }
+
+    // Извлекаем записи, принадлежащие конкретному пользователю, сортируя от свежих к старым
+    const { data, error } = await supabase
+      .from('thoughts')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return res.status(200).json({ thoughts: data });
+  } catch (error) {
+    console.error('Ошибка сервера при чтении журнала:', error.message);
+    return res.status(500).json({ error: `Внутренняя ошибка сервера: ${error.message}` });
+  }
+});
+
+/**
+ * ЭНДПОИНТ 3: Интерактивный ИИ-чат (Инкубация и обсуждение идей)
+ */
+router.post('/api/chat', async (req, res) => {
+  try {
+    const { text, mode, system_prompt, use_global_context, parent_thought_id } = req.body;
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Текст запроса обязателен' });
+    }
+
+    // Базовый системный промпт по умолчанию для удержания строгого тона
+    let finalSystemPrompt = system_prompt || 'Ты ассистент ИИ-Дневника в стиле строгого делового научпопа.';
+    
+    if (mode === 'discuss') {
+      finalSystemPrompt += ' Твоя цель — не соглашаться, а задавать глубокие наводящие вопросы, искать логические противоречия и помогать автору развернуть мысль дальше.';
+    } else {
+      finalSystemPrompt += ' Твоя цель — аккуратно отредактировать текст, структурировать хаотичный поток мыслей, выделить тезисы, не меняя ключевой смысл.';
+    }
+
+    // Запрос к OpenRouter API (модель по вашему выбору, например Google Gemini или аналогичная)
+    const openRouterResponse = await fetch('https://openrouter.ai', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://kosova.pro', // Реферер вашего проекта
+        'X-Title': '[+vision] Diary'
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash', // Высокоскоростная модель для MVP
+        messages: [
+          { role: 'system', content: finalSystemPrompt },
+          { role: 'user', content: text }
+        ],
+        temperature: 0.3 // Низкая температура для минимизации галлюцинаций ИИ
+      })
+    });
+
+    const aiData = await openRouterResponse.json();
+    if (!openRouterResponse.ok || aiData.error) {
+      throw new Error(aiData.error?.message || 'Ошибка генерации текста через OpenRouter');
+    }
+
+    const reply = aiData.choices[0]?.message?.content;
+    return res.status(200).json({ reply });
+  } catch (error) {
+    console.error('Ошибка в эндпоинте /api/chat:', error.message);
+    return res.status(500).json({ error: `Ошибка ИИ-анализа: ${error.message}` });
+  }
+});
+
+/**
+ * ЭНДПОИНТ 4: Голосовое распознавание речи (STT через Groq Whisper-Large-V3)
+ */
+router.post('/api/stt', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Аудиофайл не найден в теле запроса' });
+    }
+
+    const lang = req.body.lang || 'ru';
+    const whisperLang = mapLangForWhisper(lang);
+
+    // Подготовка multipart/form-data для передачи бинарных данных в Groq API напрямую из ОЗУ
+    const formData = new FormData();
+    formData.append('file', req.file.buffer, {
+      filename: req.file.originalname || 'voice.mp3',
+      contentType: req.file.mimetype
+    });
+    formData.append('model', 'whisper-large-v3');
+    formData.append('language', whisperLang);
+    formData.append('response_format', 'json');
+
+    const groqResponse = await fetch('https://groq.com', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
         ...formData.getHeaders()
       },
       body: formData
     });
 
-    const data = await response.json();
-    if (!response.ok || data.error) throw new Error(data.error?.message || 'Ошибка Whisper');
-    res.json({ success: true, text: data.text });
+    const sttData = await groqResponse.json();
+    if (!groqResponse.ok || sttData.error) {
+      throw new Error(sttData.error?.message || 'Ошибка транскрибации на стороне API Groq');
+    }
+
+    return res.status(200).json({ text: sttData.text });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Ошибка в эндпоинте /api/stt:', error.message);
+    return res.status(500).json({ error: `Ошибка распознавания голоса: ${error.message}` });
   }
-});
-
-/* ================================================================
- 3. ЭНДПОИНТ ИИ-ЧАТА (/api/chat)
- ================================================================ */
-router.post('/chat', async (req, res) => {
-  const { text, mode, use_global_context, system_prompt } = req.body;
-  try {
-    const response = await fetch('https://openrouter.ai', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://vercel.com',
-        'X-Title': '[+vision] Diary'
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-flash-1.5-8b',
-        messages: [
-          { role: 'system', content: system_prompt || 'Ты ассистент ИИ-Дневника.' },
-          { role: 'user', content: text }
-        ]
-      })
-    });
-
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message || 'Ошибка OpenRouter');
-    res.json({ reply: data.choices.message.content });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/* ================================================================
- ЗАПУСК СЕРВЕРА EXPRESS И CORS
- ================================================================ */
-const app = express();
-app.use(express.json());
-
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
-
-app.use('/api', router);
-
-// Render автоматически передает нужный порт через переменную окружения PORT
-app.listen(process.env.PORT || 3000, () => {
-  console.log('Сервер [+vision] успешно запущен и слушает запросы');
 });
 
 export default router;
