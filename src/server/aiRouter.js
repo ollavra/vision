@@ -7,12 +7,13 @@ import { createClient } from '@supabase/supabase-js';
 // Инициализация роутера Express
 const router = Router();
 
-// Инициализация Supabase клиента с service_role_key для обхода ограничений при необходимости
+// Инициализация Supabase клиента строго по вашим переменным из Render
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
 
-// Настройка хранилища Multer в оперативной памяти (In-Memory) для обработки аудио без дискового следа
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Настройка хранилища Multer в оперативной памяти (In-Memory) для обработки аудио
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
@@ -29,7 +30,6 @@ function mapLangForWhisper(lang = 'ru') {
 
 /**
  * ЭНДПОИНТ 1: Сохранение новой мысли / ветки в Журнал (Supabase PostgreSQL)
- * Доступ строго по JWT токену активной пользовательской сессии
  */
 router.post('/api/thoughts', async (req, res) => {
   try {
@@ -41,7 +41,7 @@ router.post('/api/thoughts', async (req, res) => {
     // Извлекаем чистый access_token из заголовка Bearer
     const token = authHeader.split(' ')[1];
 
-    // Проверяем валидность токена и получаем профиль пользователя напрямую из Supabase Auth
+    // Проверяем валидность токена в Supabase Auth
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
       return res.status(401).json({ error: 'Неверный или просроченный токен авторизации' });
@@ -52,7 +52,7 @@ router.post('/api/thoughts', async (req, res) => {
       return res.status(400).json({ error: 'Текст мысли не может быть пустым' });
     }
 
-    // Вставляем запись в таблицу thoughts. Настроенная RLS политика гарантирует защиту данных
+    // Вставляем запись в таблицу thoughts
     const { data, error } = await supabase
       .from('thoughts')
       .insert([
@@ -61,7 +61,7 @@ router.post('/api/thoughts', async (req, res) => {
           text: text.trim(),
           mode: mode || 'editor',
           parent_thought_id: parent_thought_id || null,
-          context_locked: true // Фиксируем контекст для готовой публикации в журнал
+          context_locked: true
         }
       ])
       .select()
@@ -93,7 +93,7 @@ router.get('/api/thoughts', async (req, res) => {
       return res.status(401).json({ error: 'Сессия недействительна или устарела' });
     }
 
-    // Извлекаем записи, принадлежащие конкретному пользователю, сортируя от свежих к старым
+    // Извлекаем записи текущего пользователя
     const { data, error } = await supabase
       .from('thoughts')
       .select('*')
@@ -118,7 +118,6 @@ router.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Текст запроса обязателен' });
     }
 
-    // Базовый системный промпт по умолчанию для удержания строгого тона
     let finalSystemPrompt = system_prompt || 'Ты ассистент ИИ-Дневника в стиле строгого делового научпопа.';
     
     if (mode === 'discuss') {
@@ -127,22 +126,22 @@ router.post('/api/chat', async (req, res) => {
       finalSystemPrompt += ' Твоя цель — аккуратно отредактировать текст, структурировать хаотичный поток мыслей, выделить тезисы, не меняя ключевой смысл.';
     }
 
-    // Запрос к OpenRouter API (модель по вашему выбору, например Google Gemini или аналогичная)
+    // Запрос к OpenRouter API
     const openRouterResponse = await fetch('https://openrouter.ai', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://kosova.pro', // Реферер вашего проекта
+        'HTTP-Referer': 'https://kosova.pro',
         'X-Title': '[+vision] Diary'
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash', // Высокоскоростная модель для MVP
+        model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: finalSystemPrompt },
           { role: 'user', content: text }
         ],
-        temperature: 0.3 // Низкая температура для минимизации галлюцинаций ИИ
+        temperature: 0.3
       })
     });
 
@@ -171,7 +170,6 @@ router.post('/api/stt', upload.single('audio'), async (req, res) => {
     const lang = req.body.lang || 'ru';
     const whisperLang = mapLangForWhisper(lang);
 
-    // Подготовка multipart/form-data для передачи бинарных данных в Groq API напрямую из ОЗУ
     const formData = new FormData();
     formData.append('file', req.file.buffer, {
       filename: req.file.originalname || 'voice.mp3',
