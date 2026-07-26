@@ -2,9 +2,9 @@
   "name": "vision-backend",
   "version": "1.0.0",
   "type": "module",
-  "main": "src/server/aiRouter.js",
+  "main": "src/server/index.js",
   "scripts": {
-    "start": "node src/server/aiRouter.js",
+    "start": "node src/server/index.js",
     "build": "vite build"
   },
   "dependencies": {
@@ -19,6 +19,8 @@
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.3.1",
     "@tailwindcss/vite": "^4.0.0",
-    "tailwindcss": "^4.0.0"
+    "tailwindcss": "^4.0.0",
+    "cors": "^2.8.5"
+
   }
 }
