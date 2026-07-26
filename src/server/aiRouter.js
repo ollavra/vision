@@ -251,5 +251,6 @@ router.post('/api/stt', upload.single('audio'), async (req, res) => {
     return res.status(500).json({ error: `Ошибка распознавания голоса: ${error.message}` });
   }
 });
+export default router;
 
 
