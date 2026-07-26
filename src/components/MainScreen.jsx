@@ -17,10 +17,9 @@ export default function MainScreen() {
   const [parentThought, setParentThought] = useState(null);
   const [isPublishing, setIsPublishing] = useState(false);
 
-  // Стейты для работы с голосовой записью
+  // Ссылка для хранения объекта распознавания речи
+  const recognitionRef = useRef(null);
   const [isRecording, setIsRecording] = useState(false);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -65,67 +64,48 @@ export default function MainScreen() {
     }
   };
 
-  // Метод старта записи звука с микрофона
-  const startRecording = async () => {
-    audioChunksRef.current = [];
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
-        await uploadAudio(audioBlob);
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      alert('Не удалось получить доступ к микрофону: ' + err.message);
+  // Метод старта БЕСПЛАТНОГО распознавания речи без внешних API
+  const startRecording = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Ваш browser не поддерживает встроенное распознавание речи. Попробуйте Google Chrome или Safari.');
+      return;
     }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ru-RU';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setIsRecording(true);
+    };
+
+    recognition.onerror = (event) => {
+      console.error('Ошибка записи:', event.error);
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognition.onresult = async (event) => {
+      const speechToTextResult = event.results[0][0].transcript;
+      if (speechToTextResult && speechToTextResult.trim()) {
+        await handleSend(speechToTextResult);
+      }
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
   };
 
   // Метод остановки записи звука
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
+    if (recognitionRef.current && isRecording) {
+      recognitionRef.current.stop();
       setIsRecording(false);
-    }
-  };
-
-  // Передача аудио на сервер для транскрибации через Groq Whisper
-  const uploadAudio = async (audioBlob) => {
-    setIsLoading(true);
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'voice.mp3');
-    formData.append('lang', 'ru');
-
-    try {
-      const apiUrl = 'https://vision-backend-olsz.onrender.com';
-      const response = await fetch(`${apiUrl}/api/stt`, {
-        method: 'POST',
-        body: formData
-      });
-      
-      const data = await response.json();
-      if (!response.ok || data.error) throw new Error(data.error || 'Ошибка транскрибации');
-      
-      if (data.text && data.text.trim()) {
-        await handleSend(data.text);
-      } else {
-        alert('ИИ не смог распознать речь. Попробуйте сказать четче.');
-      }
-    } catch (error) {
-      alert(`Ошибка распознавания голоса: ${error.message}`);
-    } finally {
-      setIsLoading(false);
     }
   };
   const handlePublish = async () => {
@@ -315,3 +295,5 @@ export default function MainScreen() {
     </div>
   );
 }
+
+
