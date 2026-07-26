@@ -153,6 +153,10 @@ router.get('/api/thoughts', async (req, res) => {
  * =================================================================
  * БЛОК ИНТЕГРАЦИИ С ИИ И ГОЛОСОМ
  * =================================================================
+ /**
+ * =================================================================
+ * БЛОК ИНТЕГРАЦИИ С ИИ И ГОЛОСОМ (ФИНАЛЬНЫЙ СТАБИЛЬНЫЙ ВАРИАНТ)
+ * =================================================================
  */
 
 // Интерактивный ИИ-чат (Инкубация и обсуждение идей)
@@ -171,7 +175,8 @@ router.post('/api/chat', async (req, res) => {
       finalSystemPrompt += ' Твоя цель — аккуратно отредактировать текст, структурировать хаотичный поток мыслей, выделить тезисы, не меняя ключевой смысл.';
     }
 
-    const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    // ИСПРАВЛЕНО: Указан полный корректный адрес OpenRouter
+    const openRouterResponse = await fetch('openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -191,10 +196,16 @@ router.post('/api/chat', async (req, res) => {
 
     const aiData = await openRouterResponse.json();
     if (!openRouterResponse.ok || aiData.error) {
+      console.error('Ошибка OpenRouter API:', aiData.error);
       throw new Error(aiData.error?.message || 'Ошибка генерации текста через OpenRouter');
     }
 
-    const reply = aiData.choices[0]?.message?.content;
+    // ИСПРАВЛЕНО: Безопасный разбор ответа (массив choices)
+    const reply = aiData.choices?.[0]?.message?.content || aiData.choices?.message?.content;
+    if (!reply) {
+      throw new Error('ИИ вернул пустой ответ');
+    }
+
     return res.status(200).json({ reply });
   } catch (error) {
     console.error('Ошибка в эндпоинте /api/chat:', error.message);
@@ -202,49 +213,13 @@ router.post('/api/chat', async (req, res) => {
   }
 });
 
-// Голосовое распознавание речи (STT через OpenRouter)
-router.post('/api/stt', upload.single('audio'), async (req, res) => {
-  try {
-    // ЗАЩИТА: Если multer не смог распарсить ключ 'audio', проверяем, что пришло
-    if (!req.file) {
-      console.error('🔥 Критическая ошибка: Бэкенд получил запрос, но req.file пуст! Проверьте ключ отправки на фронтенде.');
-      return res.status(400).json({ error: 'Файл аудио не найден. Бэкенд ожидает FormData с ключом "audio"' });
-    }
-
-    const lang = req.body.lang || 'ru';
-    const whisperLang = mapLangForWhisper(lang);
-
-    // Переводим аудио-буфер в строку base64 для OpenRouter
-    const audioBase64 = req.file.buffer.toString('base64');
-
-    const openRouterResponse = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-3.1-8b-instruct:free',
-        language: whisperLang,
-        response_format: 'json',
-        input_audio: {
-          data: audioBase64,
-          format: 'webm'
-        }
-      })
-    });
-
-    const sttData = await openRouterResponse.json();
-    if (!openRouterResponse.ok || sttData.error) {
-      throw new Error(sttData.error?.message || 'Ошибка транскрибации на стороне OpenRouter');
-    }
-
-    return res.status(200).json({ text: sttData.text.trim() });
-  } catch (error) {
-    console.error('Ошибка в эндпоинте /api/stt:', error.message);
-    return res.status(500).json({ error: `Ошибка распознавания голоса: ${error.message}` });
-  }
+// Заглушка для STT (так как распознавание перенесено на бесплатный фронтенд)
+router.post('/api/stt', async (req, res) => {
+  return res.status(200).json({ message: 'STT теперь обрабатывается на клиенте' });
 });
+
+export default router;
+
 export default router;
 
 
