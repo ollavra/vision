@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AboutModal from './AboutModal';
 import JournalScreen from './JournalScreen';
@@ -17,6 +17,11 @@ export default function MainScreen() {
   const [parentThought, setParentThought] = useState(null);
   const [isPublishing, setIsPublishing] = useState(false);
 
+  // Стейты для работы с голосовой записью
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
   useEffect(() => {
     const root = document.documentElement;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -28,11 +33,12 @@ export default function MainScreen() {
     applyTheme();
     localStorage.setItem('app_theme', theme);
   }, [theme]);
-
-  const handleSend = async () => {
-    if (!inputText.trim() || isLoading) return;
-    const userText = inputText;
-    setMessages(prev => [...prev, { sender: 'user', text: userText }]);
+  // Функция текстовой отправки в ИИ-чат
+  const handleSend = async (textToSend = inputText) => {
+    const trimmedText = textToSend.trim();
+    if (!trimmedText || isLoading) return;
+    
+    setMessages(prev => [...prev, { sender: 'user', text: trimmedText }]);
     setInputText('');
     setIsLoading(true);
     
@@ -42,7 +48,7 @@ export default function MainScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: userText,
+          text: trimmedText,
           mode: mode,
           use_global_context: useContext,
           parent_thought_id: parentThought ? parentThought.id : null,
@@ -59,14 +65,84 @@ export default function MainScreen() {
     }
   };
 
+  // Метод старта записи звука с микрофона
+  const startRecording = async () => {
+    audioChunksRef.current = [];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
+        await uploadAudio(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      alert('Не удалось получить доступ к микрофону: ' + err.message);
+    }
+  };
+
+  // Метод остановки записи звука
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  // Передача аудио на сервер для транскрибации через Groq Whisper
+  const uploadAudio = async (audioBlob) => {
+    setIsLoading(true);
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'voice.mp3');
+    formData.append('lang', 'ru');
+
+    try {
+      const apiUrl = 'https://onrender.com';
+      const response = await fetch(`${apiUrl}/api/stt`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || 'Ошибка транскрибации');
+      
+      if (data.text && data.text.trim()) {
+        await handleSend(data.text);
+      } else {
+        alert('ИИ не смог распознать речь. Попробуйте сказать четче.');
+      }
+    } catch (error) {
+      alert(`Ошибка распознавания голоса: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
   const handlePublish = async () => {
     if (messages.length === 0 || isPublishing) return;
-    setIsPublishing(true);
-
+    
     try {
       const sessionStr = localStorage.getItem('user_session');
       if (!sessionStr) throw new Error('Пользователь не авторизован');
       const session = JSON.parse(sessionStr);
+      
+      const isEmailConfirmed = session.user?.email_confirmed_at;
+      if (!isEmailConfirmed) {
+        alert('⚠️ Чтобы ваши мысли надежно сохранились в облачном Журнале, пожалуйста, подтвердите ваш e-mail по ссылке из письма.');
+        return;
+      }
+
+      setIsPublishing(true);
       const token = session.access_token;
 
       const fullText = messages
@@ -113,6 +189,11 @@ export default function MainScreen() {
     ]);
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('user_session');
+    window.location.reload(); 
+  };
+
   if (viewingJournal) {
     return (
       <JournalScreen 
@@ -124,7 +205,6 @@ export default function MainScreen() {
 
   const isContextDisabled = messages.length > 0;
   const showPublishButton = messages.some(msg => msg.sender === 'ai');
-
   return (
     <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 min-h-[90vh] relative">
       <header className="sticky top-0 z-50 w-full glass rounded-2xl px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
@@ -148,6 +228,7 @@ export default function MainScreen() {
             {theme === 'system' ? '🌓 Системная' : theme === 'light' ? '☀️ Светлая' : '🌙 Темная'}
           </button>
           <button onClick={() => setIsAboutOpen(true)} className="text-sm px-4 py-1.5 glass rounded-full hover:text-[var(--accent)] transition-colors">О сервисе</button>
+          <button onClick={handleLogout} className="text-sm px-3 py-1.5 glass rounded-full text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-all">Выйти</button>
         </div>
       </header>
 
@@ -190,8 +271,28 @@ export default function MainScreen() {
 
               <div className="flex flex-col gap-3">
                 <div className="flex gap-2 items-center">
-                  <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} className="glass-input flex-1" placeholder={isLoading ? "Ожидайте ответа..." : "Запишите вашу мысль..."} disabled={isLoading} />
-                  <button onClick={handleSend} className="btn-accent !w-auto px-6" disabled={isLoading}>➔</button>
+                  <input 
+                    type="text" 
+                    value={inputText} 
+                    onChange={(e) => setInputText(e.target.value)} 
+                    onKeyDown={(e) => e.key === 'Enter' && handleSend()} 
+                    className="glass-input flex-1" 
+                    placeholder={isRecording ? "Идет запись голоса... Говорите" : isLoading ? "Ожидайте ответа..." : "Запишите или надиктовывайте мысль..."} 
+                    disabled={isLoading || isRecording} 
+                  />
+                  
+                  {inputText.trim() === "" ? (
+                    <button 
+                      type="button"
+                      onClick={isRecording ? stopRecording : startRecording} 
+                      className={`px-5 py-3 rounded-xl font-medium transition-all ${isRecording ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse' : 'glass hover:text-[var(--accent)]'}`}
+                      disabled={isLoading}
+                    >
+                      {isRecording ? '⏹️' : '🎙️'}
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => handleSend()} className="btn-accent !w-auto px-6" disabled={isLoading}>➔</button>
+                  )}
                 </div>
                 
                 {showPublishButton && (
