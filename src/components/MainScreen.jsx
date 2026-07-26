@@ -1,8 +1,7 @@
-// src/components/MainScreen.jsx
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AboutModal from './AboutModal';
-import JournalScreen from './JournalScreen'; // <-- 1. Импортируем созданный экран
+import JournalScreen from './JournalScreen';
 
 export default function MainScreen() {
   const [hasStarted, setHasStarted] = useState(false);
@@ -14,9 +13,8 @@ export default function MainScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('app_theme') || 'system');
   
-  // Новые стейты для интеграции журнала и ветвления
-  const [viewingJournal, setViewingJournal] = useState(false); // <-- 2. Стейт переключения экранов
-  const [parentThought, setParentThought] = useState(null); // Для хранения родительской мысли (++мысль)
+  const [viewingJournal, setViewingJournal] = useState(false);
+  const [parentThought, setParentThought] = useState(null);
   const [isPublishing, setIsPublishing] = useState(false);
 
   useEffect(() => {
@@ -31,7 +29,6 @@ export default function MainScreen() {
     localStorage.setItem('app_theme', theme);
   }, [theme]);
 
-  // Функция отправки сообщений в ИИ-чат
   const handleSend = async () => {
     if (!inputText.trim() || isLoading) return;
     const userText = inputText;
@@ -40,9 +37,7 @@ export default function MainScreen() {
     setIsLoading(true);
     
     try {
-      // Исправляем базовый адрес на ваш рабочий бэкенд
       const apiUrl = 'https://onrender.com';
-      
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -50,7 +45,7 @@ export default function MainScreen() {
           text: userText,
           mode: mode,
           use_global_context: useContext,
-          parent_thought_id: parentThought ? parentThought.id : null, // Передаем контекст ветвления
+          parent_thought_id: parentThought ? parentThought.id : null,
           system_prompt: 'Ты ассистент ИИ-Дневника в стиле строгого делового научпопа.'
         })
       });
@@ -64,7 +59,6 @@ export default function MainScreen() {
     }
   };
 
-  // Метод сохранения диалога/мысли в базу Supabase через наш бэкенд
   const handlePublish = async () => {
     if (messages.length === 0 || isPublishing) return;
     setIsPublishing(true);
@@ -75,7 +69,6 @@ export default function MainScreen() {
       const session = JSON.parse(sessionStr);
       const token = session.access_token;
 
-      // Собираем весь текст текущей сессии (все реплики пользователя)
       const fullText = messages
         .filter(msg => msg.sender === 'user')
         .map(msg => msg.text)
@@ -99,7 +92,6 @@ export default function MainScreen() {
       if (!response.ok) throw new Error(data.error || 'Не удалось опубликовать запись');
 
       alert('Мысль успешно сохранена в вашем облачном Журнале!');
-      // Сбрасываем окно чата в начальное состояние
       setMessages([]);
       setHasStarted(false);
       setParentThought(null);
@@ -110,20 +102,17 @@ export default function MainScreen() {
     }
   };
 
-  // Логика функции «++мысль» (создание ветки из архива)
   const handleBranchOut = (archiveThought) => {
     setParentThought(archiveThought);
     setMode(archiveThought.mode);
     setViewingJournal(false);
     setHasStarted(true);
-    // Добавляем текст родительской записи как стартовый контекст прямо в чат
     setMessages([
       { sender: 'user', text: `[Развитие мысли от ${new Date(archiveThought.created_at).toLocaleDateString()}]: ${archiveThought.text}` },
       { sender: 'ai', text: 'Контекст принят. Готов помочь развить эту концепцию. Что именно мы изменим или добавим?' }
     ]);
   };
 
-  // Если пользователь переключился на просмотр журнала — рендерим JournalScreen
   if (viewingJournal) {
     return (
       <JournalScreen 
@@ -138,7 +127,6 @@ export default function MainScreen() {
 
   return (
     <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 min-h-[90vh] relative">
-      {/* Шапка */}
       <header className="sticky top-0 z-50 w-full glass rounded-2xl px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <div className="logo-placeholder !w-9 !h-9 !text-sm">✦</div>
@@ -147,7 +135,6 @@ export default function MainScreen() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {/* Кнопка открытия журнала */}
           <button 
             onClick={() => setViewingJournal(true)}
             className="text-sm px-4 py-1.5 glass rounded-full hover:text-[var(--accent)] transition-colors"
@@ -164,7 +151,6 @@ export default function MainScreen() {
         </div>
       </header>
 
-      {/* Контентная зона чата */}
       <div className="flex-1 flex flex-col justify-between">
         <AnimatePresence mode="wait">
           {!hasStarted ? (
@@ -205,3 +191,26 @@ export default function MainScreen() {
               <div className="flex flex-col gap-3">
                 <div className="flex gap-2 items-center">
                   <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} className="glass-input flex-1" placeholder={isLoading ? "Ожидайте ответа..." : "Запишите вашу мысль..."} disabled={isLoading} />
+                  <button onClick={handleSend} className="btn-accent !w-auto px-6" disabled={isLoading}>➔</button>
+                </div>
+                
+                {showPublishButton && (
+                  <motion.button 
+                    initial={{ opacity: 0, y: 10 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="btn-outline !w-full py-2.5 text-sm font-semibold tracking-wide border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent-soft)]" 
+                    onClick={handlePublish}
+                    disabled={isPublishing}
+                  >
+                    {isPublishing ? 'Публикация мыслей...' : '📥 Опубликовать в Журнал'}
+                  </motion.button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+      {isAboutOpen && <AboutModal onClose={() => setIsAboutOpen(false)} />}
+    </div>
+  );
+}
