@@ -108,7 +108,7 @@ export default function MainScreen() {
     formData.append('lang', 'ru');
 
     try {
-      const apiUrl = 'https://onrender.com';
+      const apiUrl = 'https://vision-backend-olsz.onrender.com';
       const response = await fetch(`${apiUrl}/api/stt`, {
         method: 'POST',
         body: formData

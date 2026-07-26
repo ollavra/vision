@@ -202,20 +202,21 @@ router.post('/api/chat', async (req, res) => {
   }
 });
 
-// Голосовое распознавание речи (STT через JSON + Base64 на OpenRouter)
+// Голосовое распознавание речи (STT через OpenRouter)
 router.post('/api/stt', upload.single('audio'), async (req, res) => {
   try {
+    // ЗАЩИТА: Если multer не смог распарсить ключ 'audio', проверяем, что пришло
     if (!req.file) {
-      return res.status(400).json({ error: 'Аудиофайл не найден в теле запроса' });
+      console.error('🔥 Критическая ошибка: Бэкенд получил запрос, но req.file пуст! Проверьте ключ отправки на фронтенде.');
+      return res.status(400).json({ error: 'Файл аудио не найден. Бэкенд ожидает FormData с ключом "audio"' });
     }
 
     const lang = req.body.lang || 'ru';
     const whisperLang = mapLangForWhisper(lang);
 
-    // 1. Читаем файл из памяти Express в Buffer и переводим в чистый Base64
+    // Переводим аудио-буфер в строку base64 для OpenRouter
     const audioBase64 = req.file.buffer.toString('base64');
 
-    // 2. Отправляем строго валидный JSON согласно спецификации OpenRouter
     const openRouterResponse = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
       method: 'POST',
       headers: {
@@ -228,26 +229,19 @@ router.post('/api/stt', upload.single('audio'), async (req, res) => {
         response_format: 'json',
         input_audio: {
           data: audioBase64,
-          format: 'webm' // Наш фронтенд пишет в формате webm
+          format: 'webm'
         }
       })
     });
 
     const sttData = await openRouterResponse.json();
-    
     if (!openRouterResponse.ok || sttData.error) {
-      console.error('Ошибка OpenRouter API:', sttData.error);
       throw new Error(sttData.error?.message || 'Ошибка транскрибации на стороне OpenRouter');
     }
 
-    if (!sttData.text) {
-      throw new Error('OpenRouter вернул пустой текст транскрипции');
-    }
-
-    // 3. Возвращаем текст на фронтенд Vercel
     return res.status(200).json({ text: sttData.text.trim() });
   } catch (error) {
-    console.error('🔥 Критическая ошибка в эндпоинте /api/stt:', error.message);
+    console.error('Ошибка в эндпоинте /api/stt:', error.message);
     return res.status(500).json({ error: `Ошибка распознавания голоса: ${error.message}` });
   }
 });
