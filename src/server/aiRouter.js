@@ -202,7 +202,7 @@ router.post('/api/chat', async (req, res) => {
   }
 });
 
-// Голосовое распознавание речи (STT через OpenRouter Whisper)
+// Голосовое распознавание речи (STT через JSON + Base64 на OpenRouter)
 router.post('/api/stt', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) {
@@ -212,35 +212,44 @@ router.post('/api/stt', upload.single('audio'), async (req, res) => {
     const lang = req.body.lang || 'ru';
     const whisperLang = mapLangForWhisper(lang);
 
-    const formData = new FormData();
-    formData.append('file', req.file.buffer, {
-      filename: 'voice.webm',
-      contentType: 'audio/webm'
-    });
-    formData.append('model', 'openai/whisper-large-v3');
-    formData.append('language', whisperLang);
-    formData.append('response_format', 'json');
+    // 1. Читаем файл из памяти Express в Buffer и переводим в чистый Base64
+    const audioBase64 = req.file.buffer.toString('base64');
 
+    // 2. Отправляем строго валидный JSON согласно спецификации OpenRouter
     const openRouterResponse = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        ...formData.getHeaders()
+        'Content-Type': 'application/json'
       },
-      body: formData
+      body: JSON.stringify({
+        model: 'openai/whisper-large-v3',
+        language: whisperLang,
+        response_format: 'json',
+        input_audio: {
+          data: audioBase64,
+          format: 'webm' // Наш фронтенд пишет в формате webm
+        }
+      })
     });
 
     const sttData = await openRouterResponse.json();
+    
     if (!openRouterResponse.ok || sttData.error) {
+      console.error('Ошибка OpenRouter API:', sttData.error);
       throw new Error(sttData.error?.message || 'Ошибка транскрибации на стороне OpenRouter');
     }
 
-    return res.status(200).json({ text: sttData.text });
+    if (!sttData.text) {
+      throw new Error('OpenRouter вернул пустой текст транскрипции');
+    }
+
+    // 3. Возвращаем текст на фронтенд Vercel
+    return res.status(200).json({ text: sttData.text.trim() });
   } catch (error) {
-    console.error('Ошибка в эндпоинте /api/stt:', error.message);
+    console.error('🔥 Критическая ошибка в эндпоинте /api/stt:', error.message);
     return res.status(500).json({ error: `Ошибка распознавания голоса: ${error.message}` });
   }
 });
 
-export default router;
 
