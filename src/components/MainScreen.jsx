@@ -130,7 +130,7 @@ export default function MainScreen() {
         .map(msg => msg.text)
         .join('\n\n');
 
-      const apiUrl = 'https://onrender.com';
+      const apiUrl = 'https://vision-backend-olsz.onrender.com';
       const response = await fetch(`${apiUrl}/api/thoughts`, {
         method: 'POST',
         headers: {

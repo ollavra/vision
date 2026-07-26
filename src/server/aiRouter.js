@@ -173,7 +173,7 @@ router.post('/api/chat', async (req, res) => {
     }
 
     // ИСПРАВЛЕНО: Указан полный корректный адрес OpenRouter
-    const openRouterResponse = await fetch('openrouter.ai/api/v1/chat/completions', {
+    const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
