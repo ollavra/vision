@@ -29,19 +29,64 @@ function mapLangForWhisper(lang = 'ru') {
 }
 
 /**
- * ЭНДПОИНТ 1: Сохранение новой мысли / ветки в Журнал (Supabase PostgreSQL)
+ * =================================================================
+ * БЛОК АВТОРИЗАЦИИ (Восстановлен для работы AuthScreen)
+ * =================================================================
  */
+
+// Регистрация нового аккаунта
+router.post('/api/signup', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email и пароль обязательны' });
+    }
+
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) throw error;
+
+    return res.status(201).json({ success: true, session: data.session, user: data.user });
+  } catch (error) {
+    console.error('Ошибка регистрации:', error.message);
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+// Авторизация / Вход в аккаунт
+router.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email и пароль обязательны' });
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+
+    return res.status(200).json({ success: true, session: data.session, user: data.user });
+  } catch (error) {
+    console.error('Ошибка входа:', error.message);
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+
+/**
+ * =================================================================
+ * БЛОК РАБОТЫ С ЖУРНАЛОМ И МЫСЛЯМИ
+ * =================================================================
+ */
+
+// Сохранение новой мысли / ветки в Журнал
 router.post('/api/thoughts', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Не авторизован: отсутствует авторизационный токен' });
+      return res.status(401).json({ error: 'Не авторизован: отсутствует токен' });
     }
     
-    // Извлекаем чистый access_token из заголовка Bearer
     const token = authHeader.split(' ')[1];
 
-    // Проверяем валидность токена в Supabase Auth
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
       return res.status(401).json({ error: 'Неверный или просроченный токен авторизации' });
@@ -52,7 +97,6 @@ router.post('/api/thoughts', async (req, res) => {
       return res.status(400).json({ error: 'Текст мысли не может быть пустым' });
     }
 
-    // Вставляем запись в таблицу thoughts
     const { data, error } = await supabase
       .from('thoughts')
       .insert([
@@ -76,9 +120,7 @@ router.post('/api/thoughts', async (req, res) => {
   }
 });
 
-/**
- * ЭНДПОИНТ 2: Получение персонального списка всех мыслей пользователя для Архива
- */
+// Получение персонального списка всех мыслей пользователя для Архива
 router.get('/api/thoughts', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -93,7 +135,6 @@ router.get('/api/thoughts', async (req, res) => {
       return res.status(401).json({ error: 'Сессия недействительна или устарела' });
     }
 
-    // Извлекаем записи текущего пользователя
     const { data, error } = await supabase
       .from('thoughts')
       .select('*')
@@ -109,8 +150,12 @@ router.get('/api/thoughts', async (req, res) => {
 });
 
 /**
- * ЭНДПОИНТ 3: Интерактивный ИИ-чат (Инкубация и обсуждение идей)
+ * =================================================================
+ * БЛОК ИНТЕГРАЦИИ С ИИ И ГОЛОСОМ
+ * =================================================================
  */
+
+// Интерактивный ИИ-чат (Инкубация и обсуждение идей)
 router.post('/api/chat', async (req, res) => {
   try {
     const { text, mode, system_prompt, use_global_context, parent_thought_id } = req.body;
@@ -126,7 +171,6 @@ router.post('/api/chat', async (req, res) => {
       finalSystemPrompt += ' Твоя цель — аккуратно отредактировать текст, структурировать хаотичный поток мыслей, выделить тезисы, не меняя ключевой смысл.';
     }
 
-    // Запрос к OpenRouter API
     const openRouterResponse = await fetch('https://openrouter.ai', {
       method: 'POST',
       headers: {
@@ -158,9 +202,7 @@ router.post('/api/chat', async (req, res) => {
   }
 });
 
-/**
- * ЭНДПОИНТ 4: Голосовое распознавание речи (STT через Groq Whisper-Large-V3)
- */
+// Голосовое распознавание речи (STT через Groq Whisper-Large-V3)
 router.post('/api/stt', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) {
