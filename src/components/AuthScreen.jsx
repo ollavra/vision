@@ -89,7 +89,7 @@ export default function AuthScreen({ onSuccess }) {
     setErrorMsg('');
 
     try {
-      const apiUrl = 'https://onrender.com';
+      const apiUrl = 'https://vision-backend-olsz.onrender.com';
       const endpoint = isSignUp ? '/api/signup' : '/api/login';
       
       const response = await fetch(`${apiUrl}${endpoint}`, {
@@ -154,8 +154,6 @@ export default function AuthScreen({ onSuccess }) {
           <path d="M 112 8 L 119 8 L 119 32 L 112 32" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
-
-
         {errorMsg && (
           <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-500 text-center">
             {errorMsg}
@@ -165,16 +163,19 @@ export default function AuthScreen({ onSuccess }) {
           <form onSubmit={handleSubmit} noValidate>
           {/* 1. Поле ИМЯ: Показывается строго при создании аккаунта */}
           {isSignUp && (
-            <div className="mb-5 flex flex-col items-start w-full">
-              <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">{t.nameLabel}</label>
-              <input 
-                type="text" 
-                className="glass-input w-full" 
-                placeholder={t.namePlaceholder} 
-                disabled={isLoading} 
-              />
-            </div>
-          }
+  <div className="mb-5 flex flex-col items-start w-full">
+    <label className="block text-sm font-medium mb-1.5 text-[var(--text-secondary)]">
+      {t.nameLabel}
+    </label>
+
+    <input
+      type="text"
+      className="glass-input w-full"
+      placeholder={t.namePlaceholder}
+      disabled={isLoading}
+    />
+  </div>
+)}
 
           {/* 2. Поле ПОЧТА */}
           <div className="mb-5 flex flex-col items-start w-full">
