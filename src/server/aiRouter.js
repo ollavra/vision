@@ -202,7 +202,7 @@ router.post('/api/chat', async (req, res) => {
   }
 });
 
-// Голосовое распознавание речи (STT через Groq Whisper-Large-V3)
+// Голосовое распознавание речи (STT через OpenRouter Whisper)
 router.post('/api/stt', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) {
@@ -214,25 +214,25 @@ router.post('/api/stt', upload.single('audio'), async (req, res) => {
 
     const formData = new FormData();
     formData.append('file', req.file.buffer, {
-      filename: req.file.originalname || 'voice.mp3',
-      contentType: req.file.mimetype
+      filename: 'voice.webm',
+      contentType: 'audio/webm'
     });
-    formData.append('model', 'whisper-large-v3');
+    formData.append('model', 'openai/whisper-large-v3');
     formData.append('language', whisperLang);
     formData.append('response_format', 'json');
 
-    const groqResponse = await fetch('https://groq.com', {
+    const openRouterResponse = await fetch('https://openrouter.ai', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         ...formData.getHeaders()
       },
       body: formData
     });
 
-    const sttData = await groqResponse.json();
-    if (!groqResponse.ok || sttData.error) {
-      throw new Error(sttData.error?.message || 'Ошибка транскрибации на стороне API Groq');
+    const sttData = await openRouterResponse.json();
+    if (!openRouterResponse.ok || sttData.error) {
+      throw new Error(sttData.error?.message || 'Ошибка транскрибации на стороне OpenRouter');
     }
 
     return res.status(200).json({ text: sttData.text });
@@ -243,3 +243,4 @@ router.post('/api/stt', upload.single('audio'), async (req, res) => {
 });
 
 export default router;
+
