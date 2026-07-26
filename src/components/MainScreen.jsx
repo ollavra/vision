@@ -42,7 +42,7 @@ export default function MainScreen() {
     setIsLoading(true);
     
     try {
-      const apiUrl = 'https://onrender.com';
+      const apiUrl = 'https://vision-backend-olsz.onrender.com';
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,7 +68,7 @@ export default function MainScreen() {
   const startRecording = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert('Ваш browser не поддерживает встроенное распознавание речи. Попробуйте Google Chrome или Safari.');
+      alert('Ваш браузер не поддерживает встроенное распознавание речи. Попробуйте Google Chrome или Safari.');
       return;
     }
 
@@ -231,6 +231,7 @@ export default function MainScreen() {
             </motion.div>
           ) : (
             <motion.div key="chat-screen" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="glass p-6 sm:p-8 flex flex-col h-[70vh] w-full">
+              {/* Исправлено: Отрегулированы все открывающие и закрывающие теги блока переключателей */}
               <div className="flex flex-wrap gap-4 mb-4 items-center">
                 <button onClick={() => !isContextDisabled && setMode('editor')} disabled={isContextDisabled} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${mode === 'editor' ? 'btn-accent !w-auto' : 'glass opacity-60'} ${isContextDisabled && mode !== 'editor' ? 'hidden' : ''}`}>Редактор</button>
                 <button onClick={() => !isContextDisabled && setMode('discuss')} disabled={isContextDisabled} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${mode === 'discuss' ? 'btn-accent !w-auto' : 'glass opacity-60'} ${isContextDisabled && mode !== 'discuss' ? 'hidden' : ''}`}>Обсудить</button>
@@ -240,6 +241,7 @@ export default function MainScreen() {
                 </label>
               </div>
               
+              {/* Поток вывода сообщений пользователя и ответов ИИ */}
               <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
                 {messages.map((msg, i) => (
                   <div key={i} className={`p-4 rounded-2xl max-w-[80%] ${msg.sender === 'user' ? 'ml-auto btn-accent !w-auto text-white' : 'glass'}`}>{msg.text}</div>
@@ -249,6 +251,7 @@ export default function MainScreen() {
                 )}
               </div>
 
+              {/* Нижняя панель ввода и кнопка бесплатного системного микрофона */}
               <div className="flex flex-col gap-3">
                 <div className="flex gap-2 items-center">
                   <input 
@@ -295,5 +298,3 @@ export default function MainScreen() {
     </div>
   );
 }
-
-

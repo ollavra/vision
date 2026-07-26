@@ -15,7 +15,7 @@ export default function JournalScreen({ onClose, onBranchOut }) {
         const session = JSON.parse(sessionStr);
         const token = session.access_token;
 
-        const apiUrl = 'https://onrender.com';
+        const apiUrl = 'https://vision-backend-olsz.onrender.com';
         const response = await fetch(`${apiUrl}/api/thoughts`, {
           method: 'GET',
           headers: {
