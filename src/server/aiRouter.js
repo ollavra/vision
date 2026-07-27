@@ -156,7 +156,7 @@ router.get('/api/thoughts', async (req, res) => {
  * =================================================================
  */
 
-// Интерактивный ИИ-чат (Инкубация и обсуждение идей)
+// Интерактивный ИИ-чат (С каскадным переключением на бесплатный резерв)
 router.post('/api/chat', async (req, res) => {
   try {
     const { text, mode, system_prompt, use_global_context, parent_thought_id } = req.body;
@@ -172,32 +172,67 @@ router.post('/api/chat', async (req, res) => {
       finalSystemPrompt += ' Твоя цель — аккуратно отредактировать текст, структурировать хаотичный поток мыслей, выделить тезисы, не меняя ключевой смысл.';
     }
 
-    // ИСПРАВЛЕНО: Указан полный корректный адрес OpenRouter
-    const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://kosova.pro',
-        'X-Title': '[+vision] Diary'
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: finalSystemPrompt },
-          { role: 'user', content: text }
-        ],
-        temperature: 0.3
-      })
-    });
+    let aiData;
+    let openRouterResponse;
 
-    const aiData = await openRouterResponse.json();
-    if (!openRouterResponse.ok || aiData.error) {
-      console.error('Ошибка OpenRouter API:', aiData.error);
-      throw new Error(aiData.error?.message || 'Ошибка генерации текста через OpenRouter');
+    try {
+      // ПОПЫТКА 1: Стучимся к лучшей бесплатной модели из вашего списка
+      console.log('Попытка вызова основной бесплатной модели: google/gemma-4-31b-it:free');
+      openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://kosova.pro',
+          'X-Title': '[+vision] Diary'
+        },
+        body: JSON.stringify({
+          model: 'google/gemma-4-31b-it:free',
+          messages: [
+            { role: 'system', content: finalSystemPrompt },
+            { role: 'user', content: String(text) }
+          ],
+          temperature: 0.3
+        })
+      });
+
+      aiData = await openRouterResponse.json();
+
+      if (!openRouterResponse.ok || aiData.error || !aiData.choices) {
+        throw new Error(aiData.error?.message || 'Основная модель недоступна');
+      }
+
+    } catch (primaryModelError) {
+      // КАСКАДНЫЙ ПЕРЕХОД: Если попытка 1 упала, активируется фиолетовый Free Models Router
+      console.warn('⚠️ Основная модель выдала ошибку. Переключаюсь на Free Models Router:', primaryModelError.message);
+
+      openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://kosova.pro',
+          'X-Title': '[+vision] Diary'
+        },
+        body: JSON.stringify({
+          model: 'openrouter/free',
+          messages: [
+            { role: 'system', content: finalSystemPrompt },
+            { role: 'user', content: String(text) }
+          ],
+          temperature: 0.4
+        })
+      });
+
+      aiData = await openRouterResponse.json();
+
+      if (!openRouterResponse.ok || aiData.error) {
+        console.error('Ошибка даже на резервном бесплатном роутере:', aiData.error);
+        throw new Error(aiData.error?.message || 'Ошибка генерации на резервном шлюзе OpenRouter');
+      }
     }
 
-    // ИСПРАВЛЕНО: Безопасный разбор ответа (массив choices)
+    // Извлекаем ответ с обязательным индексом, чтобы Node.js не выдал синтаксическую ошибку
     const reply = aiData.choices?.[0]?.message?.content || aiData.choices?.message?.content;
     if (!reply) {
       throw new Error('ИИ вернул пустой ответ');
@@ -209,12 +244,6 @@ router.post('/api/chat', async (req, res) => {
     return res.status(500).json({ error: `Ошибка ИИ-анализа: ${error.message}` });
   }
 });
-
-// Заглушка для STT (так как распознавание перенесено на бесплатный фронтенд)
-router.post('/api/stt', async (req, res) => {
-  return res.status(200).json({ message: 'STT теперь обрабатывается на клиенте' });
-});
-
 export default router;
 
 
