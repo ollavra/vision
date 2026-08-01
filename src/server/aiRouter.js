@@ -87,6 +87,23 @@ router.post('/api/login', async (req, res) => {
   }
 });
 
+// Обновление короткоживущего access token без повторного ввода пароля.
+router.post('/api/refresh-session', async (req, res) => {
+  try {
+    const { refresh_token } = req.body;
+    if (!refresh_token) {
+      return res.status(400).json({ error: 'Отсутствует токен обновления сессии' });
+    }
+
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token });
+    if (error || !data.session) throw error || new Error('Не удалось обновить сессию');
+
+    return res.status(200).json({ success: true, session: data.session });
+  } catch (error) {
+    return res.status(401).json({ error: 'Сессия истекла. Пожалуйста, войдите снова.' });
+  }
+});
+
 
 /**
  * =================================================================
@@ -239,6 +256,5 @@ router.post('/api/chat', requireUser, async (req, res) => {
   }
 });
 export default router;
-
 
 
