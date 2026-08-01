@@ -37,6 +37,10 @@ export default function MainScreen() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: session.refresh_token })
     });
+    // Preview may temporarily use the previous Render deployment, where the
+    // refresh route does not exist yet. That server does not enforce the JWT,
+    // so keep the existing token until the backend release is deployed.
+    if (response.status === 404) return session.access_token;
     const data = await response.json();
     if (!response.ok || !data.session) {
       throw new Error(data.error || 'Сессия истекла. Пожалуйста, войдите снова.');
