@@ -21,6 +21,31 @@ export default function MainScreen() {
   const recognitionRef = useRef(null);
   const [isRecording, setIsRecording] = useState(false);
 
+  const apiUrl = 'https://vision-backend-olsz.onrender.com';
+
+  const getValidAccessToken = async () => {
+    const sessionStr = localStorage.getItem('user_session');
+    if (!sessionStr) throw new Error('Пользователь не авторизован');
+
+    const session = JSON.parse(sessionStr);
+    const expiresSoon = !session.expires_at || session.expires_at * 1000 < Date.now() + 60_000;
+    if (!expiresSoon) return session.access_token;
+    if (!session.refresh_token) throw new Error('Сессия истекла. Пожалуйста, войдите снова.');
+
+    const response = await fetch(`${apiUrl}/api/refresh-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: session.refresh_token })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.session) {
+      throw new Error(data.error || 'Сессия истекла. Пожалуйста, войдите снова.');
+    }
+
+    localStorage.setItem('user_session', JSON.stringify(data.session));
+    return data.session.access_token;
+  };
+
   useEffect(() => {
     const root = document.documentElement;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -42,10 +67,7 @@ export default function MainScreen() {
     setIsLoading(true);
     
     try {
-      const sessionStr = localStorage.getItem('user_session');
-      if (!sessionStr) throw new Error('Пользователь не авторизован');
-      const token = JSON.parse(sessionStr).access_token;
-      const apiUrl = 'https://vision-backend-olsz.onrender.com';
+      const token = await getValidAccessToken();
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: {
@@ -61,7 +83,7 @@ export default function MainScreen() {
         })
       });
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      if (!response.ok || data.error) throw new Error(data.error || 'Не удалось получить ответ ИИ');
       setMessages(prev => [...prev, { sender: 'ai', text: data.reply }]);
     } catch (error) {
       setMessages(prev => [...prev, { sender: 'ai', text: `Ошибка связи с сервером: ${error.message}` }]);
