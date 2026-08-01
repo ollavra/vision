@@ -19,7 +19,10 @@ export default function MainScreen() {
 
   // Ссылка для хранения объекта распознавания речи
   const recognitionRef = useRef(null);
+  const speechTranscriptRef = useRef('');
+  const speechWasSentRef = useRef(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
 
   const apiUrl = 'https://vision-backend-olsz.onrender.com';
 
@@ -100,13 +103,19 @@ export default function MainScreen() {
   const startRecording = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert('Ваш браузер не поддерживает встроенное распознавание речи. Попробуйте Google Chrome или Safari.');
+      setVoiceError('Браузер не поддерживает распознавание речи. Используйте диктовку на клавиатуре iPhone.');
       return;
     }
 
+    setVoiceError('');
+    setInputText('');
+    speechTranscriptRef.current = '';
+    speechWasSentRef.current = false;
+
     const recognition = new SpeechRecognition();
     recognition.lang = 'ru-RU';
-    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
@@ -115,22 +124,50 @@ export default function MainScreen() {
 
     recognition.onerror = (event) => {
       console.error('Ошибка записи:', event.error);
+      const errorMessages = {
+        'not-allowed': 'Safari не получил доступ к микрофону. Разрешите микрофон для этого сайта в настройках Safari.',
+        'service-not-allowed': 'На iPhone недоступно распознавание речи. Проверьте, что Siri включена.',
+        'audio-capture': 'iPhone не смог получить звук с микрофона.',
+        'network': 'Safari не смог связаться со службой распознавания речи.',
+        'no-speech': 'Речь не была распознана. Нажмите микрофон и попробуйте ещё раз.'
+      };
+      setVoiceError(errorMessages[event.error] || `Не удалось распознать речь: ${event.error}`);
       setIsRecording(false);
     };
 
-    recognition.onend = () => {
+    recognition.onend = async () => {
       setIsRecording(false);
+      const transcript = speechTranscriptRef.current.trim();
+      if (transcript && !speechWasSentRef.current) {
+        speechWasSentRef.current = true;
+        await handleSend(transcript);
+      } else if (!transcript) {
+        setVoiceError((currentError) => currentError || 'Safari завершил запись без текста. Попробуйте ещё раз или используйте микрофон на клавиатуре iPhone.');
+      }
     };
 
     recognition.onresult = async (event) => {
-      const speechToTextResult = event.results[0][0].transcript;
-      if (speechToTextResult && speechToTextResult.trim()) {
-        await handleSend(speechToTextResult);
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript || '')
+        .join(' ')
+        .trim();
+
+      speechTranscriptRef.current = transcript;
+      setInputText(transcript);
+
+      const hasFinalResult = Array.from(event.results).some((result) => result.isFinal);
+      if (hasFinalResult && transcript && !speechWasSentRef.current) {
+        speechWasSentRef.current = true;
+        await handleSend(transcript);
       }
     };
 
     recognitionRef.current = recognition;
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (error) {
+      setVoiceError(`Не удалось запустить микрофон: ${error.message}`);
+    }
   };
 
   // Метод остановки записи звука
@@ -309,6 +346,10 @@ export default function MainScreen() {
                     <button type="button" onClick={() => handleSend()} className="btn-accent !w-auto px-6" disabled={isLoading}>➔</button>
                   )}
                 </div>
+
+                {voiceError && (
+                  <p className="text-xs text-red-400 px-1" role="alert">{voiceError}</p>
+                )}
                 
                 {showPublishButton && (
                   <motion.button 
