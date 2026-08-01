@@ -42,10 +42,16 @@ export default function MainScreen() {
     setIsLoading(true);
     
     try {
+      const sessionStr = localStorage.getItem('user_session');
+      if (!sessionStr) throw new Error('Пользователь не авторизован');
+      const token = JSON.parse(sessionStr).access_token;
       const apiUrl = 'https://vision-backend-olsz.onrender.com';
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           text: trimmedText,
           mode: mode,
