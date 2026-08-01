@@ -7,11 +7,28 @@ import { createClient } from '@supabase/supabase-js';
 // Инициализация роутера Express
 const router = Router();
 
-// Инициализация Supabase клиента строго по вашим переменным из Render
+// Auth uses the public key. Data requests receive the user's JWT so RLS remains active.
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+const createUserClient = (token) => createClient(supabaseUrl, supabaseKey, {
+  global: { headers: { Authorization: `Bearer ${token}` } },
+  auth: { persistSession: false, autoRefreshToken: false }
+});
+
+async function requireUser(req, res, next) {
+  const match = req.headers.authorization?.match(/^Bearer\s+(.+)$/i);
+  if (!match) return res.status(401).json({ error: 'Не авторизован: отсутствует токен' });
+
+  const token = match[1];
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Неверный или просроченный токен авторизации' });
+
+  req.auth = { user, supabase: createUserClient(token) };
+  next();
+}
 
 // Настройка хранилища Multer в оперативной памяти (In-Memory) для обработки аудио
 const storage = multer.memoryStorage();
@@ -78,30 +95,18 @@ router.post('/api/login', async (req, res) => {
  */
 
 // Сохранение новой мысли / ветки в Журнал
-router.post('/api/thoughts', async (req, res) => {
+router.post('/api/thoughts', requireUser, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Не авторизован: отсутствует токен' });
-    }
-    
-    const token = authHeader.split(' ')[1];
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return res.status(401).json({ error: 'Неверный или просроченный токен авторизации' });
-    }
-
     const { text, mode, parent_thought_id } = req.body;
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Текст мысли не может быть пустым' });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await req.auth.supabase
       .from('thoughts')
       .insert([
         {
-          user_id: user.id,
+          user_id: req.auth.user.id,
           text: text.trim(),
           mode: mode || 'editor',
           parent_thought_id: parent_thought_id || null,
@@ -121,23 +126,12 @@ router.post('/api/thoughts', async (req, res) => {
 });
 
 // Получение персонального списка всех мыслей пользователя для Архива
-router.get('/api/thoughts', async (req, res) => {
+router.get('/api/thoughts', requireUser, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Доступ запрещен: отсутствует токен' });
-    }
-    
-    const token = authHeader.split(' ')[1];
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return res.status(401).json({ error: 'Сессия недействительна или устарела' });
-    }
-
-    const { data, error } = await supabase
+    const { data, error } = await req.auth.supabase
       .from('thoughts')
       .select('*')
+      .eq('user_id', req.auth.user.id)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -157,7 +151,7 @@ router.get('/api/thoughts', async (req, res) => {
  */
 
 // Интерактивный ИИ-чат (С каскадным переключением на бесплатный резерв)
-router.post('/api/chat', async (req, res) => {
+router.post('/api/chat', requireUser, async (req, res) => {
   try {
     const { text, mode, system_prompt, use_global_context, parent_thought_id } = req.body;
     if (!text || !text.trim()) {
@@ -245,7 +239,6 @@ router.post('/api/chat', async (req, res) => {
   }
 });
 export default router;
-
 
 
 
