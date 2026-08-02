@@ -16,7 +16,7 @@ function AudioWave({ isActive }) {
 
 const STEPS = [
   { btn: 'editor', textRu: 'Открой Редактор — начни запись мыслей голосом или текстом.', textEn: 'Open Editor — start recording thoughts by voice or text.' },
-  { btn: 'discuss', textRu: 'Нажми «Обсудить» — ИИ задаст наводящие вопросы, чтобы раскрыть тему.', textEn: 'Tap «Discuss» — AI will ask guiding questions to explore the topic.' },
+  { btn: 'discuss', textRu: 'Переключись в «Диалог» — ИИ задаст наводящие вопросы, чтобы раскрыть тему.', textEn: 'Switch to «Dialogue» — AI will ask guiding questions to explore the topic.' },
   { btn: 'summary', textRu: 'Саммари — сожми дневник в тезисы и найди инсайты за вечер.', textEn: 'Summary — condense your journal into key points and find insights in the evening.' },
   { btn: null, textRu: '', textEn: '' }
 ];

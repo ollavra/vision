@@ -7,11 +7,28 @@ import { createClient } from '@supabase/supabase-js';
 // Инициализация роутера Express
 const router = Router();
 
-// Инициализация Supabase клиента строго по вашим переменным из Render
+// Auth uses the public key. Data requests receive the user's JWT so RLS remains active.
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+const createUserClient = (token) => createClient(supabaseUrl, supabaseKey, {
+  global: { headers: { Authorization: `Bearer ${token}` } },
+  auth: { persistSession: false, autoRefreshToken: false }
+});
+
+async function requireUser(req, res, next) {
+  const match = req.headers.authorization?.match(/^Bearer\s+(.+)$/i);
+  if (!match) return res.status(401).json({ error: 'Не авторизован: отсутствует токен' });
+
+  const token = match[1];
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Неверный или просроченный токен авторизации' });
+
+  req.auth = { user, supabase: createUserClient(token) };
+  next();
+}
 
 // Настройка хранилища Multer в оперативной памяти (In-Memory) для обработки аудио
 const storage = multer.memoryStorage();
@@ -70,6 +87,23 @@ router.post('/api/login', async (req, res) => {
   }
 });
 
+// Обновление короткоживущего access token без повторного ввода пароля.
+router.post('/api/refresh-session', async (req, res) => {
+  try {
+    const { refresh_token } = req.body;
+    if (!refresh_token) {
+      return res.status(400).json({ error: 'Отсутствует токен обновления сессии' });
+    }
+
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token });
+    if (error || !data.session) throw error || new Error('Не удалось обновить сессию');
+
+    return res.status(200).json({ success: true, session: data.session });
+  } catch (error) {
+    return res.status(401).json({ error: 'Сессия истекла. Пожалуйста, войдите снова.' });
+  }
+});
+
 
 /**
  * =================================================================
@@ -78,30 +112,19 @@ router.post('/api/login', async (req, res) => {
  */
 
 // Сохранение новой мысли / ветки в Журнал
-router.post('/api/thoughts', async (req, res) => {
+router.post('/api/thoughts', requireUser, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Не авторизован: отсутствует токен' });
-    }
-    
-    const token = authHeader.split(' ')[1];
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return res.status(401).json({ error: 'Неверный или просроченный токен авторизации' });
-    }
-
-    const { text, mode, parent_thought_id } = req.body;
+    const { title, text, mode, parent_thought_id } = req.body;
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Текст мысли не может быть пустым' });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await req.auth.supabase
       .from('thoughts')
       .insert([
         {
-          user_id: user.id,
+          user_id: req.auth.user.id,
+          title: title?.trim() || null,
           text: text.trim(),
           mode: mode || 'editor',
           parent_thought_id: parent_thought_id || null,
@@ -121,23 +144,12 @@ router.post('/api/thoughts', async (req, res) => {
 });
 
 // Получение персонального списка всех мыслей пользователя для Архива
-router.get('/api/thoughts', async (req, res) => {
+router.get('/api/thoughts', requireUser, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Доступ запрещен: отсутствует токен' });
-    }
-    
-    const token = authHeader.split(' ')[1];
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return res.status(401).json({ error: 'Сессия недействительна или устарела' });
-    }
-
-    const { data, error } = await supabase
+    const { data, error } = await req.auth.supabase
       .from('thoughts')
       .select('*')
+      .eq('user_id', req.auth.user.id)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -156,87 +168,195 @@ router.get('/api/thoughts', async (req, res) => {
  * =================================================================
  */
 
-// Интерактивный ИИ-чат (С каскадным переключением на бесплатный резерв)
-router.post('/api/chat', async (req, res) => {
+const openRouterHeaders = {
+  'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+  'Content-Type': 'application/json',
+  'HTTP-Referer': 'https://kosova.pro',
+  'X-Title': '[+vision] Diary'
+};
+
+async function callOpenRouter(messages, temperature = 0.3) {
+  const models = ['google/gemma-4-31b-it:free', 'openrouter/free'];
+  let lastError;
+
+  for (const model of models) {
+    try {
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: openRouterHeaders,
+        body: JSON.stringify({ model, messages, temperature })
+      });
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (!response.ok || data.error || !content) {
+        throw new Error(data.error?.message || `${model} вернул пустой ответ`);
+      }
+      return content.trim();
+    } catch (error) {
+      lastError = error;
+      console.warn(`Модель ${model} недоступна:`, error.message);
+    }
+  }
+
+  throw lastError || new Error('Модели OpenRouter недоступны');
+}
+
+const normalizeWords = (text) => (
+  String(text).toLocaleLowerCase('ru-RU').match(/[\p{L}\p{N}]+/gu) || []
+);
+
+const applyPunctuationToOriginalWords = (original, formatted) => {
+  const originalWords = String(original).match(/[\p{L}\p{N}]+/gu) || [];
+  const formattedMatches = Array.from(String(formatted).matchAll(/[\p{L}\p{N}]+/gu));
+  if (originalWords.length === 0) return original;
+
+  const normalizedOriginal = normalizeWords(original);
+  const normalizedFormatted = normalizeWords(formatted);
+  if (originalWords.length !== formattedMatches.length) {
+    let formattedCursor = 0;
+    const restored = originalWords.map((word, index) => {
+      const matchIndex = normalizedFormatted.findIndex((candidate, candidateIndex) => (
+        candidateIndex >= formattedCursor && candidateIndex <= formattedCursor + 5 && candidate === normalizedOriginal[index]
+      ));
+      if (matchIndex < 0) return word;
+
+      formattedCursor = matchIndex + 1;
+      const match = formattedMatches[matchIndex];
+      const nextStart = formattedMatches[matchIndex + 1]?.index ?? String(formatted).length;
+      const separator = String(formatted).slice(match.index + match[0].length, nextStart);
+      const punctuation = separator.match(/[,.!?;:—–-]+/)?.[0] || '';
+      const safeWord = index === 0
+        ? `${word[0].toLocaleUpperCase('ru-RU')}${word.slice(1)}`
+        : word;
+      return `${safeWord}${punctuation}`;
+    });
+    const restoredText = restored.join(' ').trim();
+    return /[.!?]$/.test(restoredText) ? restoredText : `${restoredText}.`;
+  }
+
+  const matchingPositions = normalizedOriginal.filter((word, index) => word === normalizedFormatted[index]).length;
+  if (matchingPositions / originalWords.length < 0.8) {
+    const capitalized = `${originalWords[0][0].toLocaleUpperCase('ru-RU')}${originalWords[0].slice(1)}`;
+    return `${[capitalized, ...originalWords.slice(1)].join(' ')}.`;
+  }
+
+  const prefix = String(formatted).slice(0, formattedMatches[0].index).replace(/\s+/g, '');
+  let result = prefix;
+  formattedMatches.forEach((match, index) => {
+    const sourceWord = originalWords[index];
+    const modelWord = match[0];
+    const firstLetter = modelWord[0] === modelWord[0].toLocaleUpperCase('ru-RU')
+      ? sourceWord[0].toLocaleUpperCase('ru-RU')
+      : sourceWord[0];
+    const safeWord = `${firstLetter}${sourceWord.slice(1)}`;
+    const nextStart = formattedMatches[index + 1]?.index ?? String(formatted).length;
+    const separator = String(formatted).slice(match.index + modelWord.length, nextStart);
+    result += safeWord + separator;
+  });
+
+  return result.trim();
+};
+
+router.post('/api/punctuate', requireUser, async (req, res) => {
   try {
-    const { text, mode, system_prompt, use_global_context, parent_thought_id } = req.body;
+    const text = String(req.body.text || '').trim();
+    if (!text) return res.status(400).json({ error: 'Текст обязателен' });
+
+    const formatted = await callOpenRouter([
+      {
+        role: 'system',
+        content: 'Расставь знаки препинания, границы предложений, абзацы и регистр букв. Не добавляй, не удаляй, не заменяй и не переставляй слова. Верни только оформленный текст.'
+      },
+      { role: 'user', content: text }
+    ], 0);
+
+    return res.status(200).json({ text: applyPunctuationToOriginalWords(text, formatted) });
+  } catch (error) {
+    console.error('Ошибка оформления голосового текста:', error.message);
+    return res.status(200).json({ text: String(req.body.text || '').trim(), fallback: true });
+  }
+});
+
+async function getJournalContext(userClient, userId) {
+  const { data, error } = await userClient
+    .from('thoughts')
+    .select('title, text, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((thought) => (
+    `${thought.title ? `${thought.title}\n` : ''}${thought.text}`
+  )).join('\n\n---\n\n');
+}
+
+router.post('/api/voice-message', requireUser, async (req, res) => {
+  try {
+    const { text, history = [], mode = 'editor', use_global_context = true } = req.body;
+    const originalText = String(text || '').trim();
+    if (!originalText) return res.status(400).json({ error: 'Текст обязателен' });
+
+    const sessionTranscript = Array.isArray(history) ? history.slice(-100).map((message) => (
+      `${message.sender === 'ai' ? 'ИИ' : 'Пользователь'}: ${message.title ? `${message.title}\n` : ''}${String(message.text || '')}`
+    )).join('\n\n') : '';
+
+    let contextPrompt = '';
+    if (use_global_context) {
+      const journalContext = await getJournalContext(req.auth.supabase, req.auth.user.id);
+      if (journalContext) contextPrompt = `\n\nКонтекст ранее опубликованного Журнала:\n${journalContext}`;
+    }
+
+    const dialogueInstruction = mode === 'discuss'
+      ? 'Также дай содержательный и доброжелательный ответ по смыслу сообщения. Не комментируй грамотность или отсутствие пунктуации.'
+      : 'Ответ пользователю не нужен: поле reply должно быть null.';
+    const raw = await callOpenRouter([
+      {
+        role: 'system',
+        content: `Оформи голосовой текст: расставь пунктуацию, границы предложений, абзацы и регистр, не меняя состав и порядок слов. ${dialogueInstruction} Верни строго JSON вида {"text":"Оформленный текст","reply":"Ответ или null"}.${contextPrompt}`
+      },
+      { role: 'user', content: `${sessionTranscript ? `Текущая сессия:\n${sessionTranscript}\n\n` : ''}Новое голосовое сообщение:\n${originalText}` }
+    ], 0.2);
+
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    const result = JSON.parse(cleaned);
+    const formattedText = applyPunctuationToOriginalWords(originalText, result.text || originalText);
+    const reply = typeof result.reply === 'string' && !/^(user\s+)?safety\s+safe[.!]?$/i.test(result.reply.trim())
+      ? result.reply.trim()
+      : null;
+
+    return res.status(200).json({ text: formattedText, reply });
+  } catch (error) {
+    console.error('Ошибка обработки голосового сообщения:', error.message);
+    return res.status(500).json({ error: `Не удалось обработать голосовое сообщение: ${error.message}` });
+  }
+});
+
+// Интерактивный ИИ-чат с полным контекстом текущей сессии.
+router.post('/api/chat', requireUser, async (req, res) => {
+  try {
+    const { text, history = [], use_global_context = true } = req.body;
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Текст запроса обязателен' });
     }
 
-    let finalSystemPrompt = system_prompt || 'Ты ассистент ИИ-Дневника в стиле строгого делового научпопа.';
-    
-    if (mode === 'discuss') {
-      finalSystemPrompt += ' Твоя цель — не соглашаться, а задавать глубокие наводящие вопросы, искать логические противоречия и помогать автору развернуть мысль дальше.';
-    } else {
-      finalSystemPrompt += ' Твоя цель — аккуратно отредактировать текст, структурировать хаотичный поток мыслей, выделить тезисы, не меняя ключевой смысл.';
-    }
+    let systemPrompt = 'Ты ассистент ИИ-Дневника. Веди содержательный диалог: задавай глубокие вопросы, замечай противоречия и помогай автору развивать мысль. Учитывай всю переданную текущую сессию. Голосовой ввод может приходить без пунктуации: понимай его по смыслу и никогда не комментируй отсутствие знаков препинания, грамотность или оформление сообщения.';
 
-    let aiData;
-    let openRouterResponse;
-
-    try {
-      // ПОПЫТКА 1: Стучимся к лучшей бесплатной модели из вашего списка
-      console.log('Попытка вызова основной бесплатной модели: google/gemma-4-31b-it:free');
-      openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://kosova.pro',
-          'X-Title': '[+vision] Diary'
-        },
-        body: JSON.stringify({
-          model: 'google/gemma-4-31b-it:free',
-          messages: [
-            { role: 'system', content: finalSystemPrompt },
-            { role: 'user', content: String(text) }
-          ],
-          temperature: 0.3
-        })
-      });
-
-      aiData = await openRouterResponse.json();
-
-      if (!openRouterResponse.ok || aiData.error || !aiData.choices) {
-        throw new Error(aiData.error?.message || 'Основная модель недоступна');
-      }
-
-    } catch (primaryModelError) {
-      // КАСКАДНЫЙ ПЕРЕХОД: Если попытка 1 упала, активируется фиолетовый Free Models Router
-      console.warn('⚠️ Основная модель выдала ошибку. Переключаюсь на Free Models Router:', primaryModelError.message);
-
-      openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://kosova.pro',
-          'X-Title': '[+vision] Diary'
-        },
-        body: JSON.stringify({
-          model: 'openrouter/free',
-          messages: [
-            { role: 'system', content: finalSystemPrompt },
-            { role: 'user', content: String(text) }
-          ],
-          temperature: 0.4
-        })
-      });
-
-      aiData = await openRouterResponse.json();
-
-      if (!openRouterResponse.ok || aiData.error) {
-        console.error('Ошибка даже на резервном бесплатном роутере:', aiData.error);
-        throw new Error(aiData.error?.message || 'Ошибка генерации на резервном шлюзе OpenRouter');
+    if (use_global_context) {
+      const journalContext = await getJournalContext(req.auth.supabase, req.auth.user.id);
+      if (journalContext) {
+        systemPrompt += `\n\nКонтекст ранее опубликованного Журнала пользователя:\n${journalContext}`;
       }
     }
 
-    // Извлекаем ответ с обязательным индексом, чтобы Node.js не выдал синтаксическую ошибку
-    const reply = aiData.choices?.[0]?.message?.content || aiData.choices?.message?.content;
-    if (!reply) {
-      throw new Error('ИИ вернул пустой ответ');
-    }
+    const sessionMessages = Array.isArray(history) ? history.slice(-100).map((message) => ({
+      role: message.sender === 'ai' ? 'assistant' : 'user',
+      content: `${message.title ? `${message.title}\n\n` : ''}${String(message.text || '')}`
+    })).filter((message) => message.content.trim()) : [];
+
+    const reply = await callOpenRouter([
+      { role: 'system', content: systemPrompt },
+      ...sessionMessages,
+      { role: 'user', content: String(text) }
+    ]);
 
     return res.status(200).json({ reply });
   } catch (error) {
@@ -244,8 +364,36 @@ router.post('/api/chat', async (req, res) => {
     return res.status(500).json({ error: `Ошибка ИИ-анализа: ${error.message}` });
   }
 });
+
+router.post('/api/generate-entry', requireUser, async (req, res) => {
+  try {
+    const { history = [], use_global_context = true } = req.body;
+    if (!Array.isArray(history) || history.length === 0) {
+      return res.status(400).json({ error: 'Сессия пуста' });
+    }
+
+    let systemPrompt = 'На основе сессии создай законченную запись для личного журнала. Сохрани смысл, позицию и голос автора. Не упоминай процесс обсуждения. Верни строго JSON вида {"title":"Краткий заголовок","text":"Полный текст записи"}.';
+    if (use_global_context) {
+      const journalContext = await getJournalContext(req.auth.supabase, req.auth.user.id);
+      if (journalContext) systemPrompt += `\n\nДля смыслового контекста используй предыдущие записи Журнала:\n${journalContext}`;
+    }
+
+    const transcript = history.map((message) => (
+      `${message.sender === 'ai' ? 'ИИ' : 'Пользователь'}: ${message.title ? `${message.title}\n` : ''}${String(message.text || '')}`
+    )).join('\n\n');
+    const raw = await callOpenRouter([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: transcript }
+    ], 0.2);
+
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    const entry = JSON.parse(cleaned);
+    if (!entry.title?.trim() || !entry.text?.trim()) throw new Error('ИИ вернул неполную запись');
+
+    return res.status(200).json({ title: entry.title.trim(), text: entry.text.trim() });
+  } catch (error) {
+    console.error('Ошибка формирования записи:', error.message);
+    return res.status(500).json({ error: `Не удалось сформировать запись: ${error.message}` });
+  }
+});
 export default router;
-
-
-
-
