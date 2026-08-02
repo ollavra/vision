@@ -25,6 +25,11 @@ export default function MainScreen() {
   // Ссылка для хранения объекта распознавания речи
   const recognitionRef = useRef(null);
   const speechTranscriptRef = useRef('');
+  const speechCycleTranscriptRef = useRef('');
+  const speechInactivityTimerRef = useRef(null);
+  const speechRestartTimerRef = useRef(null);
+  const voiceSessionActiveRef = useRef(false);
+  const voiceFinalizeInProgressRef = useRef(false);
   const speechWasSentRef = useRef(false);
   const voiceSubmissionInFlightRef = useRef(false);
   const lastVoiceSubmissionRef = useRef({ fingerprint: '', submittedAt: 0 });
@@ -270,22 +275,56 @@ export default function MainScreen() {
     }
   };
 
-  // Метод старта БЕСПЛАТНОГО распознавания речи без внешних API
-  const startRecording = () => {
+  const clearSpeechTimers = () => {
+    window.clearTimeout(speechInactivityTimerRef.current);
+    window.clearTimeout(speechRestartTimerRef.current);
+    speechInactivityTimerRef.current = null;
+    speechRestartTimerRef.current = null;
+  };
+
+  const finalizeVoiceRecording = async () => {
+    if (!voiceSessionActiveRef.current || voiceFinalizeInProgressRef.current) return;
+
+    voiceFinalizeInProgressRef.current = true;
+    voiceSessionActiveRef.current = false;
+    clearSpeechTimers();
+    setIsRecording(false);
+
+    const transcript = [speechTranscriptRef.current, speechCycleTranscriptRef.current]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    speechCycleTranscriptRef.current = '';
+
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // Safari may already have ended the current recognition cycle.
+    }
+
+    if (transcript && !speechWasSentRef.current) {
+      speechWasSentRef.current = true;
+      await handleVoiceTranscript(transcript);
+    } else if (!transcript) {
+      setVoiceError('Речь не была распознана. Нажмите микрофон и попробуйте ещё раз.');
+    }
+
+    voiceFinalizeInProgressRef.current = false;
+  };
+
+  const startRecognitionCycle = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setVoiceError('Браузер не поддерживает распознавание речи. Используйте диктовку на клавиатуре iPhone.');
+      voiceSessionActiveRef.current = false;
+      setIsRecording(false);
       return;
     }
 
-    setVoiceError('');
-    setInputText('');
-    speechTranscriptRef.current = '';
-    speechWasSentRef.current = false;
-
     const recognition = new SpeechRecognition();
     recognition.lang = 'ru-RU';
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
@@ -295,6 +334,8 @@ export default function MainScreen() {
 
     recognition.onerror = (event) => {
       console.error('Ошибка записи:', event.error);
+      if (event.error === 'no-speech' && voiceSessionActiveRef.current) return;
+
       const errorMessages = {
         'not-allowed': 'Safari не получил доступ к микрофону. Разрешите микрофон для этого сайта в настройках Safari.',
         'service-not-allowed': 'На iPhone недоступно распознавание речи. Проверьте, что Siri включена.',
@@ -303,17 +344,22 @@ export default function MainScreen() {
         'no-speech': 'Речь не была распознана. Нажмите микрофон и попробуйте ещё раз.'
       };
       setVoiceError(errorMessages[event.error] || `Не удалось распознать речь: ${event.error}`);
+      voiceSessionActiveRef.current = false;
+      clearSpeechTimers();
       setIsRecording(false);
     };
 
-    recognition.onend = async () => {
-      setIsRecording(false);
-      const transcript = speechTranscriptRef.current.trim();
-      if (transcript && !speechWasSentRef.current) {
-        speechWasSentRef.current = true;
-        await handleVoiceTranscript(transcript);
-      } else if (!transcript) {
-        setVoiceError((currentError) => currentError || 'Safari завершил запись без текста. Попробуйте ещё раз или используйте микрофон на клавиатуре iPhone.');
+    recognition.onend = () => {
+      if (speechCycleTranscriptRef.current) {
+        speechTranscriptRef.current = [speechTranscriptRef.current, speechCycleTranscriptRef.current]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        speechCycleTranscriptRef.current = '';
+      }
+
+      if (voiceSessionActiveRef.current) {
+        speechRestartTimerRef.current = window.setTimeout(startRecognitionCycle, 150);
       }
     };
 
@@ -323,25 +369,47 @@ export default function MainScreen() {
         .join(' ')
         .trim();
 
-      speechTranscriptRef.current = transcript;
-      setInputText(transcript);
+      speechCycleTranscriptRef.current = transcript;
+      const fullTranscript = [speechTranscriptRef.current, transcript]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      setInputText(fullTranscript);
 
+      window.clearTimeout(speechInactivityTimerRef.current);
+      speechInactivityTimerRef.current = window.setTimeout(finalizeVoiceRecording, 10_000);
     };
 
     recognitionRef.current = recognition;
     try {
       recognition.start();
     } catch (error) {
-      setVoiceError(`Не удалось запустить микрофон: ${error.message}`);
+      if (voiceSessionActiveRef.current) {
+        speechRestartTimerRef.current = window.setTimeout(startRecognitionCycle, 500);
+      } else {
+        setVoiceError(`Не удалось запустить микрофон: ${error.message}`);
+      }
     }
+  };
+
+  // Начинает единую голосовую сессию, которая переживает короткие паузы Safari.
+  const startRecording = () => {
+    setVoiceError('');
+    setInputText('');
+    clearSpeechTimers();
+    speechTranscriptRef.current = '';
+    speechCycleTranscriptRef.current = '';
+    speechWasSentRef.current = false;
+    voiceFinalizeInProgressRef.current = false;
+    voiceSessionActiveRef.current = true;
+    setIsRecording(true);
+    startRecognitionCycle();
   };
 
   // Метод остановки записи звука
   const stopRecording = () => {
-    if (recognitionRef.current && isRecording) {
-      recognitionRef.current.stop();
-      setIsRecording(false);
-    }
+    if (isRecording) finalizeVoiceRecording();
   };
 
   const handleGenerateEntry = async () => {
