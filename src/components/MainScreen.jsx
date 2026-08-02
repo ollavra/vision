@@ -212,38 +212,48 @@ export default function MainScreen() {
 
     try {
       const token = await getValidAccessToken();
-      const punctuationPromise = fetch(`${apiUrl}/api/punctuate`, {
+      const response = await fetch(`${apiUrl}/api/voice-message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ text: originalText })
-      }).then(async (response) => {
-        if (response.status === 404) {
-          const legacyText = await requestLegacyCompletion(
-            originalText,
-            'Расставь только знаки препинания, границы предложений, абзацы и регистр. Не добавляй, не удаляй, не заменяй и не переставляй слова. Верни только оформленный текст.'
-          );
-          return applyPunctuationToOriginalWords(originalText, legacyText);
+        body: JSON.stringify({
+          text: originalText,
+          history: historyBeforeMessage,
+          mode,
+          use_global_context: useContext
+        })
+      });
+
+      let data;
+      if (response.status === 404) {
+        const legacyPrompt = mode === 'discuss'
+          ? 'Оформи голосовой текст, не меняя слова, и ответь по смыслу. Никогда не комментируй пунктуацию. Верни строго JSON вида {"text":"Тот же текст со знаками препинания","reply":"Ответ пользователю"}.'
+          : 'Оформи голосовой текст, не меняя слова. Верни строго JSON вида {"text":"Тот же текст со знаками препинания","reply":null}.';
+        const legacyResult = await requestLegacyCompletion(originalText, legacyPrompt);
+        try {
+          const cleaned = legacyResult.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+          data = JSON.parse(cleaned);
+        } catch {
+          data = { text: originalText, reply: mode === 'discuss' ? legacyResult : null };
         }
-        if (!response.ok) return originalText;
-        const data = await response.json();
-        return data.text?.trim() || originalText;
-      }).catch(() => originalText);
+      } else {
+        data = await response.json();
+      }
 
-      const replyPromise = mode === 'discuss'
-        ? requestDialogueReply(originalText, historyBeforeMessage)
-        : null;
+      if (!response.ok && response.status !== 404) {
+        throw new Error(data.error || 'Не удалось обработать голосовое сообщение');
+      }
 
-      const formattedText = await punctuationPromise;
+      const formattedText = applyPunctuationToOriginalWords(originalText, data.text || originalText);
       setMessages(prev => [...prev, { sender: 'user', text: formattedText }]);
       userMessageAdded = true;
       setIsFormattingVoice(false);
 
-      if (replyPromise) {
-        setIsLoading(true);
-        const reply = await replyPromise;
+      const reply = String(data.reply || '').trim();
+      const isServiceLabel = /^(user\s+)?safety\s+safe[.!]?$/i.test(reply);
+      if (mode === 'discuss' && reply && !isServiceLabel) {
         setMessages(prev => [...prev, { sender: 'ai', text: reply }]);
       }
     } catch (error) {
@@ -307,7 +317,7 @@ export default function MainScreen() {
       }
     };
 
-    recognition.onresult = async (event) => {
+    recognition.onresult = (event) => {
       const transcript = Array.from(event.results)
         .map((result) => result[0]?.transcript || '')
         .join(' ')
@@ -316,11 +326,6 @@ export default function MainScreen() {
       speechTranscriptRef.current = transcript;
       setInputText(transcript);
 
-      const hasFinalResult = Array.from(event.results).some((result) => result.isFinal);
-      if (hasFinalResult && transcript && !speechWasSentRef.current) {
-        speechWasSentRef.current = true;
-        await handleVoiceTranscript(transcript);
-      }
     };
 
     recognitionRef.current = recognition;

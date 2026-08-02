@@ -289,6 +289,47 @@ async function getJournalContext(userClient, userId) {
   )).join('\n\n---\n\n');
 }
 
+router.post('/api/voice-message', requireUser, async (req, res) => {
+  try {
+    const { text, history = [], mode = 'editor', use_global_context = true } = req.body;
+    const originalText = String(text || '').trim();
+    if (!originalText) return res.status(400).json({ error: 'Текст обязателен' });
+
+    const sessionTranscript = Array.isArray(history) ? history.slice(-100).map((message) => (
+      `${message.sender === 'ai' ? 'ИИ' : 'Пользователь'}: ${message.title ? `${message.title}\n` : ''}${String(message.text || '')}`
+    )).join('\n\n') : '';
+
+    let contextPrompt = '';
+    if (use_global_context) {
+      const journalContext = await getJournalContext(req.auth.supabase, req.auth.user.id);
+      if (journalContext) contextPrompt = `\n\nКонтекст ранее опубликованного Журнала:\n${journalContext}`;
+    }
+
+    const dialogueInstruction = mode === 'discuss'
+      ? 'Также дай содержательный и доброжелательный ответ по смыслу сообщения. Не комментируй грамотность или отсутствие пунктуации.'
+      : 'Ответ пользователю не нужен: поле reply должно быть null.';
+    const raw = await callOpenRouter([
+      {
+        role: 'system',
+        content: `Оформи голосовой текст: расставь пунктуацию, границы предложений, абзацы и регистр, не меняя состав и порядок слов. ${dialogueInstruction} Верни строго JSON вида {"text":"Оформленный текст","reply":"Ответ или null"}.${contextPrompt}`
+      },
+      { role: 'user', content: `${sessionTranscript ? `Текущая сессия:\n${sessionTranscript}\n\n` : ''}Новое голосовое сообщение:\n${originalText}` }
+    ], 0.2);
+
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    const result = JSON.parse(cleaned);
+    const formattedText = applyPunctuationToOriginalWords(originalText, result.text || originalText);
+    const reply = typeof result.reply === 'string' && !/^(user\s+)?safety\s+safe[.!]?$/i.test(result.reply.trim())
+      ? result.reply.trim()
+      : null;
+
+    return res.status(200).json({ text: formattedText, reply });
+  } catch (error) {
+    console.error('Ошибка обработки голосового сообщения:', error.message);
+    return res.status(500).json({ error: `Не удалось обработать голосовое сообщение: ${error.message}` });
+  }
+});
+
 // Интерактивный ИИ-чат с полным контекстом текущей сессии.
 router.post('/api/chat', requireUser, async (req, res) => {
   try {
