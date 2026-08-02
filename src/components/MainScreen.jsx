@@ -26,6 +26,7 @@ export default function MainScreen() {
   const recognitionRef = useRef(null);
   const speechTranscriptRef = useRef('');
   const speechWasSentRef = useRef(false);
+  const voiceSubmissionInFlightRef = useRef(false);
   const [isRecording, setIsRecording] = useState(false);
   const [voiceError, setVoiceError] = useState('');
 
@@ -35,10 +36,31 @@ export default function MainScreen() {
     String(text).toLocaleLowerCase('ru-RU').match(/[\p{L}\p{N}]+/gu) || []
   );
 
-  const hasSameWords = (original, formatted) => {
-    const before = normalizeWords(original);
-    const after = normalizeWords(formatted);
-    return before.length === after.length && before.every((word, index) => word === after[index]);
+  const applyPunctuationToOriginalWords = (original, formatted) => {
+    const originalWords = String(original).match(/[\p{L}\p{N}]+/gu) || [];
+    const formattedMatches = Array.from(String(formatted).matchAll(/[\p{L}\p{N}]+/gu));
+    if (originalWords.length === 0 || originalWords.length !== formattedMatches.length) return original;
+
+    const normalizedOriginal = normalizeWords(original);
+    const normalizedFormatted = normalizeWords(formatted);
+    const matchingPositions = normalizedOriginal.filter((word, index) => word === normalizedFormatted[index]).length;
+    if (matchingPositions / originalWords.length < 0.8) return original;
+
+    const prefix = String(formatted).slice(0, formattedMatches[0].index).replace(/\s+/g, '');
+    let result = prefix;
+    formattedMatches.forEach((match, index) => {
+      const sourceWord = originalWords[index];
+      const modelWord = match[0];
+      const firstLetter = modelWord[0] === modelWord[0].toLocaleUpperCase('ru-RU')
+        ? sourceWord[0].toLocaleUpperCase('ru-RU')
+        : sourceWord[0];
+      const safeWord = `${firstLetter}${sourceWord.slice(1)}`;
+      const nextStart = formattedMatches[index + 1]?.index ?? String(formatted).length;
+      const separator = String(formatted).slice(match.index + modelWord.length, nextStart);
+      result += safeWord + separator;
+    });
+
+    return result.trim();
   };
 
   const getValidAccessToken = async () => {
@@ -144,8 +166,9 @@ export default function MainScreen() {
 
   const handleVoiceTranscript = async (rawTranscript) => {
     const originalText = rawTranscript.trim();
-    if (!originalText || isFormattingVoice || isLoading) return;
+    if (!originalText || voiceSubmissionInFlightRef.current || isLoading) return;
 
+    voiceSubmissionInFlightRef.current = true;
     const historyBeforeMessage = messages;
     let userMessageAdded = false;
     setIsFormattingVoice(true);
@@ -167,7 +190,7 @@ export default function MainScreen() {
             originalText,
             'Расставь только знаки препинания, границы предложений, абзацы и регистр. Не добавляй, не удаляй, не заменяй и не переставляй слова. Верни только оформленный текст.'
           );
-          return hasSameWords(originalText, legacyText) ? legacyText : originalText;
+          return applyPunctuationToOriginalWords(originalText, legacyText);
         }
         if (!response.ok) return originalText;
         const data = await response.json();
@@ -196,6 +219,7 @@ export default function MainScreen() {
         setMessages(prev => [...prev, { sender: 'ai', text: `Ошибка связи с сервером: ${error.message}` }]);
       }
     } finally {
+      voiceSubmissionInFlightRef.current = false;
       setIsFormattingVoice(false);
       setIsLoading(false);
     }

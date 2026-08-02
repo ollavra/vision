@@ -205,10 +205,31 @@ const normalizeWords = (text) => (
   String(text).toLocaleLowerCase('ru-RU').match(/[\p{L}\p{N}]+/gu) || []
 );
 
-const hasSameWords = (original, formatted) => {
-  const before = normalizeWords(original);
-  const after = normalizeWords(formatted);
-  return before.length === after.length && before.every((word, index) => word === after[index]);
+const applyPunctuationToOriginalWords = (original, formatted) => {
+  const originalWords = String(original).match(/[\p{L}\p{N}]+/gu) || [];
+  const formattedMatches = Array.from(String(formatted).matchAll(/[\p{L}\p{N}]+/gu));
+  if (originalWords.length === 0 || originalWords.length !== formattedMatches.length) return original;
+
+  const normalizedOriginal = normalizeWords(original);
+  const normalizedFormatted = normalizeWords(formatted);
+  const matchingPositions = normalizedOriginal.filter((word, index) => word === normalizedFormatted[index]).length;
+  if (matchingPositions / originalWords.length < 0.8) return original;
+
+  const prefix = String(formatted).slice(0, formattedMatches[0].index).replace(/\s+/g, '');
+  let result = prefix;
+  formattedMatches.forEach((match, index) => {
+    const sourceWord = originalWords[index];
+    const modelWord = match[0];
+    const firstLetter = modelWord[0] === modelWord[0].toLocaleUpperCase('ru-RU')
+      ? sourceWord[0].toLocaleUpperCase('ru-RU')
+      : sourceWord[0];
+    const safeWord = `${firstLetter}${sourceWord.slice(1)}`;
+    const nextStart = formattedMatches[index + 1]?.index ?? String(formatted).length;
+    const separator = String(formatted).slice(match.index + modelWord.length, nextStart);
+    result += safeWord + separator;
+  });
+
+  return result.trim();
 };
 
 router.post('/api/punctuate', requireUser, async (req, res) => {
@@ -224,7 +245,7 @@ router.post('/api/punctuate', requireUser, async (req, res) => {
       { role: 'user', content: text }
     ], 0);
 
-    return res.status(200).json({ text: hasSameWords(text, formatted) ? formatted : text });
+    return res.status(200).json({ text: applyPunctuationToOriginalWords(text, formatted) });
   } catch (error) {
     console.error('Ошибка оформления голосового текста:', error.message);
     return res.status(200).json({ text: String(req.body.text || '').trim(), fallback: true });
