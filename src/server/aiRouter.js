@@ -208,12 +208,37 @@ const normalizeWords = (text) => (
 const applyPunctuationToOriginalWords = (original, formatted) => {
   const originalWords = String(original).match(/[\p{L}\p{N}]+/gu) || [];
   const formattedMatches = Array.from(String(formatted).matchAll(/[\p{L}\p{N}]+/gu));
-  if (originalWords.length === 0 || originalWords.length !== formattedMatches.length) return original;
+  if (originalWords.length === 0) return original;
 
   const normalizedOriginal = normalizeWords(original);
   const normalizedFormatted = normalizeWords(formatted);
+  if (originalWords.length !== formattedMatches.length) {
+    let formattedCursor = 0;
+    const restored = originalWords.map((word, index) => {
+      const matchIndex = normalizedFormatted.findIndex((candidate, candidateIndex) => (
+        candidateIndex >= formattedCursor && candidateIndex <= formattedCursor + 5 && candidate === normalizedOriginal[index]
+      ));
+      if (matchIndex < 0) return word;
+
+      formattedCursor = matchIndex + 1;
+      const match = formattedMatches[matchIndex];
+      const nextStart = formattedMatches[matchIndex + 1]?.index ?? String(formatted).length;
+      const separator = String(formatted).slice(match.index + match[0].length, nextStart);
+      const punctuation = separator.match(/[,.!?;:—–-]+/)?.[0] || '';
+      const safeWord = index === 0
+        ? `${word[0].toLocaleUpperCase('ru-RU')}${word.slice(1)}`
+        : word;
+      return `${safeWord}${punctuation}`;
+    });
+    const restoredText = restored.join(' ').trim();
+    return /[.!?]$/.test(restoredText) ? restoredText : `${restoredText}.`;
+  }
+
   const matchingPositions = normalizedOriginal.filter((word, index) => word === normalizedFormatted[index]).length;
-  if (matchingPositions / originalWords.length < 0.8) return original;
+  if (matchingPositions / originalWords.length < 0.8) {
+    const capitalized = `${originalWords[0][0].toLocaleUpperCase('ru-RU')}${originalWords[0].slice(1)}`;
+    return `${[capitalized, ...originalWords.slice(1)].join(' ')}.`;
+  }
 
   const prefix = String(formatted).slice(0, formattedMatches[0].index).replace(/\s+/g, '');
   let result = prefix;
@@ -272,7 +297,7 @@ router.post('/api/chat', requireUser, async (req, res) => {
       return res.status(400).json({ error: 'Текст запроса обязателен' });
     }
 
-    let systemPrompt = 'Ты ассистент ИИ-Дневника. Веди содержательный диалог: задавай глубокие вопросы, замечай противоречия и помогай автору развивать мысль. Учитывай всю переданную текущую сессию.';
+    let systemPrompt = 'Ты ассистент ИИ-Дневника. Веди содержательный диалог: задавай глубокие вопросы, замечай противоречия и помогай автору развивать мысль. Учитывай всю переданную текущую сессию. Голосовой ввод может приходить без пунктуации: понимай его по смыслу и никогда не комментируй отсутствие знаков препинания, грамотность или оформление сообщения.';
 
     if (use_global_context) {
       const journalContext = await getJournalContext(req.auth.supabase, req.auth.user.id);
