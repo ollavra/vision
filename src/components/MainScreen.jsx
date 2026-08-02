@@ -30,6 +30,7 @@ export default function MainScreen() {
   const speechRestartTimerRef = useRef(null);
   const voiceSessionActiveRef = useRef(false);
   const voiceFinalizeInProgressRef = useRef(false);
+  const voiceSessionIdRef = useRef(0);
   const speechWasSentRef = useRef(false);
   const voiceSubmissionInFlightRef = useRef(false);
   const lastVoiceSubmissionRef = useRef({ fingerprint: '', submittedAt: 0 });
@@ -282,11 +283,13 @@ export default function MainScreen() {
     speechRestartTimerRef.current = null;
   };
 
-  const finalizeVoiceRecording = async () => {
+  const finalizeVoiceRecording = async (sessionId = voiceSessionIdRef.current) => {
+    if (sessionId !== voiceSessionIdRef.current) return;
     if (!voiceSessionActiveRef.current || voiceFinalizeInProgressRef.current) return;
 
     voiceFinalizeInProgressRef.current = true;
     voiceSessionActiveRef.current = false;
+    voiceSessionIdRef.current += 1;
     clearSpeechTimers();
     setIsRecording(false);
 
@@ -313,7 +316,9 @@ export default function MainScreen() {
     voiceFinalizeInProgressRef.current = false;
   };
 
-  const startRecognitionCycle = () => {
+  const startRecognitionCycle = (sessionId) => {
+    if (!voiceSessionActiveRef.current || sessionId !== voiceSessionIdRef.current) return;
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setVoiceError('Браузер не поддерживает распознавание речи. Используйте диктовку на клавиатуре iPhone.');
@@ -329,10 +334,12 @@ export default function MainScreen() {
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
+      if (sessionId !== voiceSessionIdRef.current) return;
       setIsRecording(true);
     };
 
     recognition.onerror = (event) => {
+      if (sessionId !== voiceSessionIdRef.current) return;
       console.error('Ошибка записи:', event.error);
       if (event.error === 'no-speech' && voiceSessionActiveRef.current) return;
 
@@ -350,6 +357,7 @@ export default function MainScreen() {
     };
 
     recognition.onend = () => {
+      if (sessionId !== voiceSessionIdRef.current) return;
       if (speechCycleTranscriptRef.current) {
         speechTranscriptRef.current = [speechTranscriptRef.current, speechCycleTranscriptRef.current]
           .filter(Boolean)
@@ -359,11 +367,21 @@ export default function MainScreen() {
       }
 
       if (voiceSessionActiveRef.current) {
-        speechRestartTimerRef.current = window.setTimeout(startRecognitionCycle, 150);
+        if (!speechInactivityTimerRef.current) {
+          speechInactivityTimerRef.current = window.setTimeout(
+            () => finalizeVoiceRecording(sessionId),
+            10_000
+          );
+        }
+        speechRestartTimerRef.current = window.setTimeout(
+          () => startRecognitionCycle(sessionId),
+          150
+        );
       }
     };
 
     recognition.onresult = (event) => {
+      if (sessionId !== voiceSessionIdRef.current) return;
       const transcript = Array.from(event.results)
         .map((result) => result[0]?.transcript || '')
         .join(' ')
@@ -378,7 +396,7 @@ export default function MainScreen() {
       setInputText(fullTranscript);
 
       window.clearTimeout(speechInactivityTimerRef.current);
-      speechInactivityTimerRef.current = window.setTimeout(finalizeVoiceRecording, 10_000);
+      speechInactivityTimerRef.current = null;
     };
 
     recognitionRef.current = recognition;
@@ -386,7 +404,10 @@ export default function MainScreen() {
       recognition.start();
     } catch (error) {
       if (voiceSessionActiveRef.current) {
-        speechRestartTimerRef.current = window.setTimeout(startRecognitionCycle, 500);
+        speechRestartTimerRef.current = window.setTimeout(
+          () => startRecognitionCycle(sessionId),
+          500
+        );
       } else {
         setVoiceError(`Не удалось запустить микрофон: ${error.message}`);
       }
@@ -403,13 +424,15 @@ export default function MainScreen() {
     speechWasSentRef.current = false;
     voiceFinalizeInProgressRef.current = false;
     voiceSessionActiveRef.current = true;
+    const sessionId = voiceSessionIdRef.current + 1;
+    voiceSessionIdRef.current = sessionId;
     setIsRecording(true);
-    startRecognitionCycle();
+    startRecognitionCycle(sessionId);
   };
 
   // Метод остановки записи звука
   const stopRecording = () => {
-    if (isRecording) finalizeVoiceRecording();
+    if (isRecording) finalizeVoiceRecording(voiceSessionIdRef.current);
   };
 
   const handleGenerateEntry = async () => {
@@ -640,7 +663,7 @@ export default function MainScreen() {
                       type="button"
                       onClick={isRecording ? stopRecording : startRecording} 
                       className={`px-5 py-3 rounded-xl font-medium transition-all ${isRecording ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse' : 'glass hover:text-[var(--accent)]'}`}
-                      disabled={isLoading}
+                      disabled={isLoading || isFormattingVoice}
                     >
                       {isRecording ? '⏹️' : '🎙️'}
                     </button>
