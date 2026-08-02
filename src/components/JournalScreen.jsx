@@ -95,9 +95,13 @@ export default function JournalScreen({ onClose, onBranchOut }) {
             <div className="flex justify-between items-center text-xs text-[var(--text-secondary)] border-b border-[var(--glass-border)] pb-2">
               <span>{formatDate(thought.created_at)}</span>
               <span className="px-2 py-0.5 rounded-md bg-[var(--accent-soft)] text-[var(--accent)] font-medium">
-                {thought.mode === 'editor' ? 'Редактор' : 'Обсуждение'}
+                {thought.mode === 'editor' ? 'Редактор' : 'Диалог'}
               </span>
             </div>
+
+            {thought.title && (
+              <h2 className="text-xl font-semibold text-[var(--text-primary)]">{thought.title}</h2>
+            )}
             
             <p className="text-[var(--text-primary)] text-base whitespace-pre-wrap leading-relaxed">
               {thought.text}

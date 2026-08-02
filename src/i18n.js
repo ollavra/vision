@@ -16,7 +16,7 @@ const translations = {
     onboarding: {
       slogan: 'Добро пожаловать. Тебе всегда есть что сказать. [+vision] поможет.',
       editor: 'Редактор',
-      discuss: 'Обсудить',
+      discuss: 'Диалог',
       summary: 'Саммари',
     },
   },
@@ -35,7 +35,7 @@ const translations = {
     onboarding: {
       slogan: "Welcome. You always have something to say. [+vision] helps.",
       editor: 'Editor',
-      discuss: 'Discuss',
+      discuss: 'Dialogue',
       summary: 'Summary',
     },
   },

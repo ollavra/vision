@@ -4,6 +4,7 @@ create table public.thoughts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   parent_thought_id uuid,
+  title text,
   text text not null check (length(btrim(text)) > 0),
   mode text not null default 'editor' check (mode in ('editor', 'discuss')),
   context_locked boolean not null default true,

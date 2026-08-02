@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AboutModal from './AboutModal';
 import JournalScreen from './JournalScreen';
+import EntryEditor from './EntryEditor';
 
 export default function MainScreen() {
   const [hasStarted, setHasStarted] = useState(false);
@@ -16,6 +17,10 @@ export default function MainScreen() {
   const [viewingJournal, setViewingJournal] = useState(false);
   const [parentThought, setParentThought] = useState(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isFormattingVoice, setIsFormattingVoice] = useState(false);
+  const [isGeneratingEntry, setIsGeneratingEntry] = useState(false);
+  const [entryDraft, setEntryDraft] = useState(null);
+  const [entryCreatedAt, setEntryCreatedAt] = useState(null);
 
   // Ссылка для хранения объекта распознавания речи
   const recognitionRef = useRef(null);
@@ -25,6 +30,16 @@ export default function MainScreen() {
   const [voiceError, setVoiceError] = useState('');
 
   const apiUrl = 'https://vision-backend-olsz.onrender.com';
+
+  const normalizeWords = (text) => (
+    String(text).toLocaleLowerCase('ru-RU').match(/[\p{L}\p{N}]+/gu) || []
+  );
+
+  const hasSameWords = (original, formatted) => {
+    const before = normalizeWords(original);
+    const after = normalizeWords(formatted);
+    return before.length === after.length && before.every((word, index) => word === after[index]);
+  };
 
   const getValidAccessToken = async () => {
     const sessionStr = localStorage.getItem('user_session');
@@ -64,37 +79,124 @@ export default function MainScreen() {
     applyTheme();
     localStorage.setItem('app_theme', theme);
   }, [theme]);
-  // Функция текстовой отправки в ИИ-чат
+  const requestDialogueReply = async (text, history) => {
+    const token = await getValidAccessToken();
+    const response = await fetch(`${apiUrl}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        text,
+        history,
+        mode: 'discuss',
+        use_global_context: useContext,
+        parent_thought_id: parentThought ? parentThought.id : null
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || 'Не удалось получить ответ ИИ');
+    return data.reply;
+  };
+
+  const requestLegacyCompletion = async (text, systemPrompt) => {
+    const token = await getValidAccessToken();
+    const response = await fetch(`${apiUrl}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        text,
+        mode: 'editor',
+        use_global_context: false,
+        system_prompt: systemPrompt
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.reply) throw new Error(data.error || 'OpenRouter недоступен');
+    return data.reply.trim();
+  };
+
+  // В Редакторе сообщение только сохраняется в сессии; в Диалоге ИИ отвечает.
   const handleSend = async (textToSend = inputText) => {
     const trimmedText = textToSend.trim();
     if (!trimmedText || isLoading) return;
-    
+
+    const historyBeforeMessage = messages;
     setMessages(prev => [...prev, { sender: 'user', text: trimmedText }]);
     setInputText('');
+    setVoiceError('');
+    if (mode === 'editor') return;
+
     setIsLoading(true);
-    
+    try {
+      const reply = await requestDialogueReply(trimmedText, historyBeforeMessage);
+      setMessages(prev => [...prev, { sender: 'ai', text: reply }]);
+    } catch (error) {
+      setMessages(prev => [...prev, { sender: 'ai', text: `Ошибка связи с сервером: ${error.message}` }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVoiceTranscript = async (rawTranscript) => {
+    const originalText = rawTranscript.trim();
+    if (!originalText || isFormattingVoice || isLoading) return;
+
+    const historyBeforeMessage = messages;
+    let userMessageAdded = false;
+    setIsFormattingVoice(true);
+    setInputText('');
+    setVoiceError('');
+
     try {
       const token = await getValidAccessToken();
-      const response = await fetch(`${apiUrl}/api/chat`, {
+      const punctuationPromise = fetch(`${apiUrl}/api/punctuate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          text: trimmedText,
-          mode: mode,
-          use_global_context: useContext,
-          parent_thought_id: parentThought ? parentThought.id : null,
-          system_prompt: 'Ты ассистент ИИ-Дневника в стиле строгого делового научпопа.'
-        })
-      });
-      const data = await response.json();
-      if (!response.ok || data.error) throw new Error(data.error || 'Не удалось получить ответ ИИ');
-      setMessages(prev => [...prev, { sender: 'ai', text: data.reply }]);
+        body: JSON.stringify({ text: originalText })
+      }).then(async (response) => {
+        if (response.status === 404) {
+          const legacyText = await requestLegacyCompletion(
+            originalText,
+            'Расставь только знаки препинания, границы предложений, абзацы и регистр. Не добавляй, не удаляй, не заменяй и не переставляй слова. Верни только оформленный текст.'
+          );
+          return hasSameWords(originalText, legacyText) ? legacyText : originalText;
+        }
+        if (!response.ok) return originalText;
+        const data = await response.json();
+        return data.text?.trim() || originalText;
+      }).catch(() => originalText);
+
+      const replyPromise = mode === 'discuss'
+        ? requestDialogueReply(originalText, historyBeforeMessage)
+        : null;
+
+      const formattedText = await punctuationPromise;
+      setMessages(prev => [...prev, { sender: 'user', text: formattedText }]);
+      userMessageAdded = true;
+      setIsFormattingVoice(false);
+
+      if (replyPromise) {
+        setIsLoading(true);
+        const reply = await replyPromise;
+        setMessages(prev => [...prev, { sender: 'ai', text: reply }]);
+      }
     } catch (error) {
-      setMessages(prev => [...prev, { sender: 'ai', text: `Ошибка связи с сервером: ${error.message}` }]);
+      if (!userMessageAdded) {
+        setMessages(prev => [...prev, { sender: 'user', text: originalText }]);
+      }
+      if (mode === 'discuss') {
+        setMessages(prev => [...prev, { sender: 'ai', text: `Ошибка связи с сервером: ${error.message}` }]);
+      }
     } finally {
+      setIsFormattingVoice(false);
       setIsLoading(false);
     }
   };
@@ -140,7 +242,7 @@ export default function MainScreen() {
       const transcript = speechTranscriptRef.current.trim();
       if (transcript && !speechWasSentRef.current) {
         speechWasSentRef.current = true;
-        await handleSend(transcript);
+        await handleVoiceTranscript(transcript);
       } else if (!transcript) {
         setVoiceError((currentError) => currentError || 'Safari завершил запись без текста. Попробуйте ещё раз или используйте микрофон на клавиатуре iPhone.');
       }
@@ -158,7 +260,7 @@ export default function MainScreen() {
       const hasFinalResult = Array.from(event.results).some((result) => result.isFinal);
       if (hasFinalResult && transcript && !speechWasSentRef.current) {
         speechWasSentRef.current = true;
-        await handleSend(transcript);
+        await handleVoiceTranscript(transcript);
       }
     };
 
@@ -177,8 +279,56 @@ export default function MainScreen() {
       setIsRecording(false);
     }
   };
+
+  const handleGenerateEntry = async () => {
+    if (messages.length === 0 || isGeneratingEntry) return;
+    setIsGeneratingEntry(true);
+
+    try {
+      const token = await getValidAccessToken();
+      const response = await fetch(`${apiUrl}/api/generate-entry`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ history: messages, use_global_context: useContext })
+      });
+      let data;
+      const usedLegacyEndpoint = response.status === 404;
+      if (usedLegacyEndpoint) {
+        const transcript = messages.map((message) => (
+          `${message.sender === 'ai' ? 'ИИ' : 'Пользователь'}: ${message.title ? `${message.title}\n` : ''}${message.text}`
+        )).join('\n\n');
+        const legacyResult = await requestLegacyCompletion(
+          transcript,
+          'Создай законченную запись личного журнала, сохранив смысл и голос автора. Верни строго JSON вида {"title":"Краткий заголовок","text":"Полный текст записи"}.'
+        );
+        const cleaned = legacyResult.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+        data = JSON.parse(cleaned);
+      } else {
+        data = await response.json();
+      }
+      if ((!response.ok && !usedLegacyEndpoint) || !data.text) throw new Error(data.error || 'Не удалось сформировать запись');
+
+      setEntryDraft({ title: data.title || 'Новая запись', text: data.text });
+      setEntryCreatedAt(new Date());
+    } catch (error) {
+      alert(`Ошибка формирования записи: ${error.message}`);
+    } finally {
+      setIsGeneratingEntry(false);
+    }
+  };
+
+  const handleReturnToSession = () => {
+    if (!entryDraft?.text.trim()) return;
+    setMessages(prev => [...prev, { sender: 'ai', text: entryDraft.text.trim(), title: entryDraft.title.trim() }]);
+    setEntryDraft(null);
+    setEntryCreatedAt(null);
+  };
+
   const handlePublish = async () => {
-    if (messages.length === 0 || isPublishing) return;
+    if (!entryDraft?.text.trim() || isPublishing) return;
     
     try {
       const sessionStr = localStorage.getItem('user_session');
@@ -192,14 +342,7 @@ export default function MainScreen() {
       }
 
       setIsPublishing(true);
-      const token = session.access_token;
-
-      const fullText = messages
-        .filter(msg => msg.sender === 'user')
-        .map(msg => msg.text)
-        .join('\n\n');
-
-      const apiUrl = 'https://vision-backend-olsz.onrender.com';
+      const token = await getValidAccessToken();
       const response = await fetch(`${apiUrl}/api/thoughts`, {
         method: 'POST',
         headers: {
@@ -207,7 +350,8 @@ export default function MainScreen() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          text: fullText,
+          title: entryDraft.title.trim(),
+          text: entryDraft.text.trim(),
           mode: mode,
           parent_thought_id: parentThought ? parentThought.id : null
         })
@@ -220,6 +364,8 @@ export default function MainScreen() {
       setMessages([]);
       setHasStarted(false);
       setParentThought(null);
+      setEntryDraft(null);
+      setEntryCreatedAt(null);
     } catch (error) {
       alert(`Ошибка публикации: ${error.message}`);
     } finally {
@@ -252,8 +398,24 @@ export default function MainScreen() {
     );
   }
 
-  const isContextDisabled = messages.length > 0;
-  const showPublishButton = messages.some(msg => msg.sender === 'ai');
+  if (entryDraft && entryCreatedAt) {
+    return (
+      <div className="w-full max-w-4xl mx-auto min-h-[90vh]">
+        <EntryEditor
+          title={entryDraft.title}
+          text={entryDraft.text}
+          createdAt={entryCreatedAt}
+          isPublishing={isPublishing}
+          onTitleChange={(title) => setEntryDraft((draft) => ({ ...draft, title }))}
+          onTextChange={(text) => setEntryDraft((draft) => ({ ...draft, text }))}
+          onPublish={handlePublish}
+          onReturn={handleReturnToSession}
+        />
+      </div>
+    );
+  }
+
+  const canGenerateEntry = messages.some(msg => msg.sender === 'user');
   return (
     <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 min-h-[90vh] relative">
       <header className="sticky top-0 z-50 w-full glass rounded-2xl px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
@@ -302,21 +464,29 @@ export default function MainScreen() {
             <motion.div key="chat-screen" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="glass p-6 sm:p-8 flex flex-col h-[70vh] w-full">
               {/* Исправлено: Отрегулированы все открывающие и закрывающие теги блока переключателей */}
               <div className="flex flex-wrap gap-4 mb-4 items-center">
-                <button onClick={() => !isContextDisabled && setMode('editor')} disabled={isContextDisabled} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${mode === 'editor' ? 'btn-accent !w-auto' : 'glass opacity-60'} ${isContextDisabled && mode !== 'editor' ? 'hidden' : ''}`}>Редактор</button>
-                <button onClick={() => !isContextDisabled && setMode('discuss')} disabled={isContextDisabled} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${mode === 'discuss' ? 'btn-accent !w-auto' : 'glass opacity-60'} ${isContextDisabled && mode !== 'discuss' ? 'hidden' : ''}`}>Обсудить</button>
-                <label className={`ml-auto flex items-center gap-2 text-sm text-[var(--text-secondary)] ${isContextDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
-                  <input type="checkbox" checked={useContext} disabled={isContextDisabled} onChange={(e) => setUseContext(e.target.checked)} className="rounded" />
-                  Учитывать контекст
+                <button onClick={() => setMode('editor')} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${mode === 'editor' ? 'btn-accent !w-auto' : 'glass opacity-60'}`}>Редактор</button>
+                <button onClick={() => setMode('discuss')} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${mode === 'discuss' ? 'btn-accent !w-auto' : 'glass opacity-60'}`}>Диалог</button>
+                <label className="ml-auto flex items-center gap-2 text-sm text-[var(--text-secondary)] cursor-pointer">
+                  <input type="checkbox" checked={!useContext} onChange={(e) => setUseContext(!e.target.checked)} className="rounded" />
+                  Не учитывать контекст Журнала
                 </label>
               </div>
               
               {/* Поток вывода сообщений пользователя и ответов ИИ */}
               <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
                 {messages.map((msg, i) => (
-                  <div key={i} className={`p-4 rounded-2xl max-w-[80%] ${msg.sender === 'user' ? 'ml-auto btn-accent !w-auto text-white' : 'glass'}`}>{msg.text}</div>
+                  <div key={i} className={`p-4 rounded-2xl max-w-[80%] ${msg.sender === 'user' ? 'ml-auto btn-accent !w-auto text-white' : 'glass'}`}>
+                    {msg.title && <h3 className="font-semibold mb-2">{msg.title}</h3>}
+                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                  </div>
                 ))}
                 {isLoading && (
                   <div className="glass p-4 rounded-2xl max-w-[40%] animate-pulse text-sm text-[var(--text-secondary)]">ИИ анализирует...</div>
+                )}
+                {isFormattingVoice && (
+                  <div className="ml-auto p-3" aria-label="Сообщение отправляется">
+                    <span className="block w-5 h-5 rounded-full border-2 border-[var(--glass-border)] border-t-[var(--accent)] animate-spin" />
+                  </div>
                 )}
               </div>
 
@@ -351,15 +521,15 @@ export default function MainScreen() {
                   <p className="text-xs text-red-400 px-1" role="alert">{voiceError}</p>
                 )}
                 
-                {showPublishButton && (
+                {canGenerateEntry && (
                   <motion.button 
                     initial={{ opacity: 0, y: 10 }} 
                     animate={{ opacity: 1, y: 0 }} 
                     className="btn-outline !w-full py-2.5 text-sm font-semibold tracking-wide border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent-soft)]" 
-                    onClick={handlePublish}
-                    disabled={isPublishing}
+                    onClick={handleGenerateEntry}
+                    disabled={isGeneratingEntry || isLoading || isFormattingVoice}
                   >
-                    {isPublishing ? 'Публикация мыслей...' : '📥 Опубликовать в Журнал'}
+                    {isGeneratingEntry ? 'Формируем запись…' : 'Сформировать запись'}
                   </motion.button>
                 )}
               </div>

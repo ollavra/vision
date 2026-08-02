@@ -7,6 +7,10 @@
 - Versioned Supabase schema for `thoughts`, `chat_sessions`, `messages` and `user_settings`.
 - Row Level Security and per-operation ownership policies for all diary tables.
 - Environment variable template and project architecture/status documentation.
+- Switchable Editor and Dialogue modes throughout a session.
+- Voice transcript punctuation through the existing OpenRouter provider, with word-preservation validation.
+- Editable generated Journal entries with title, date, publish and return-to-session actions.
+- Optional isolation from previously published Journal context while always preserving current-session context.
 
 ### Security
 

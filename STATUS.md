@@ -9,10 +9,13 @@ Version: `0.1.0-pre-alpha`
 - Personal journal entries and `++ thought` parent relationships.
 - Versioned schema for thoughts, chat sessions, messages and user settings.
 - RLS ownership policies for all diary data.
+- Editor mode that captures user text without automatic AI replies.
+- Dialogue mode with full current-session history and optional Journal context.
+- Editable entry generation before saving to the Journal.
 
 ## Known limitations
 
-- Chat sessions, messages and settings are schema-ready but are not yet wired into the current UI.
+- Chat session and message tables are schema-ready, but the active session is not yet persisted to them.
 - The frontend stores the current session in browser local storage.
 - CORS remains open for compatibility with the current MVP deployment and should be restricted after production origins are finalized.
 - There is no automated test suite yet.
